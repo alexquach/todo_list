@@ -1,10 +1,11 @@
 import { StyleSheet, TextInput, TouchableOpacity, FlatList, Animated } from 'react-native';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Swipeable, GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import ParallaxScrollView from '@/components/ParallaxScrollView';
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
+import { supabase } from '@/lib/supabase';
 
 interface TodoItem {
   id: string;
@@ -16,7 +17,25 @@ export default function HomeScreen() {
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [inputText, setInputText] = useState('');
 
-  const handleAddTodo = () => {
+  useEffect(() => {
+    fetchTodos();
+  }, []);
+
+  const fetchTodos = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('todos')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setTodos(data || []);
+    } catch (error) {
+      console.error('Error fetching todos:', error);
+    }
+  };
+
+  const handleAddTodo = async () => {
     if (inputText.trim().length > 0) {
       const newTodo: TodoItem = {
         id: Date.now().toString(),
@@ -24,13 +43,34 @@ export default function HomeScreen() {
         completed: false
       };
       
-      setTodos(currentTodos => [...currentTodos, newTodo]);
-      setInputText('');
+      try {
+        const { error } = await supabase
+          .from('todos')
+          .insert([newTodo]);
+
+        if (error) throw error;
+        
+        setTodos(currentTodos => [...currentTodos, newTodo]);
+        setInputText('');
+      } catch (error) {
+        console.error('Error adding todo:', error);
+      }
     }
   };
 
-  const deleteTodo = (id: string) => {
-    setTodos(currentTodos => currentTodos.filter(todo => todo.id !== id));
+  const deleteTodo = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('todos')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      
+      setTodos(currentTodos => currentTodos.filter(todo => todo.id !== id));
+    } catch (error) {
+      console.error('Error deleting todo:', error);
+    }
   };
 
   const renderRightActions = (dragX: Animated.AnimatedInterpolation<number>, id: string) => {
