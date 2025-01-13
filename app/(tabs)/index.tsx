@@ -11,6 +11,7 @@ interface TodoItem {
   id: string;
   text: string;
   completed: boolean;
+  completed_at: string | null;
 }
 
 export default function HomeScreen() {
@@ -40,7 +41,8 @@ export default function HomeScreen() {
       const newTodo: TodoItem = {
         id: Date.now().toString(),
         text: inputText,
-        completed: false
+        completed: false,
+        completed_at: null
       };
       
       try {
@@ -70,6 +72,32 @@ export default function HomeScreen() {
       setTodos(currentTodos => currentTodos.filter(todo => todo.id !== id));
     } catch (error) {
       console.error('Error deleting todo:', error);
+    }
+  };
+
+  const toggleTodoComplete = async (id: string, completed: boolean) => {
+    try {
+      const completed_at = !completed ? new Date().toISOString() : null;
+      
+      const { error } = await supabase
+        .from('todos')
+        .update({ 
+          completed: !completed,
+          completed_at 
+        })
+        .eq('id', id);
+
+      if (error) throw error;
+      
+      setTodos(currentTodos => 
+        currentTodos.map(todo => 
+          todo.id === id 
+            ? { ...todo, completed: !todo.completed, completed_at } 
+            : todo
+        )
+      );
+    } catch (error) {
+      console.error('Error updating todo:', error);
     }
   };
 
@@ -105,7 +133,16 @@ export default function HomeScreen() {
       rightThreshold={-100}
     >
       <ThemedView style={styles.todoItem}>
-        <ThemedText style={styles.todoTextContent}>
+        <TouchableOpacity 
+          style={styles.checkbox}
+          onPress={() => toggleTodoComplete(item.id, item.completed)}
+        >
+          {item.completed && <ThemedText style={styles.checkmark}>✓</ThemedText>}
+        </TouchableOpacity>
+        <ThemedText style={[
+          styles.todoTextContent,
+          item.completed && styles.completedText
+        ]}>
           {item.text}
         </ThemedText>
       </ThemedView>
@@ -190,6 +227,8 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 2,
     elevation: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   todoTextContent: {
     fontSize: 16,
@@ -209,5 +248,24 @@ const styles = StyleSheet.create({
   },
   listContent: {
     gap: 10,
+  },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderWidth: 2,
+    borderColor: '#007AFF',
+    borderRadius: 12,
+    marginRight: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  checkmark: {
+    color: '#007AFF',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  completedText: {
+    textDecorationLine: 'line-through',
+    color: '#888',
   },
 });
