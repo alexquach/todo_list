@@ -1,6 +1,7 @@
-import { StyleSheet, TextInput, TouchableOpacity, FlatList, Animated } from 'react-native';
+import { StyleSheet, TextInput, TouchableOpacity, FlatList, Animated, Platform } from 'react-native';
 import { useState, useEffect } from 'react';
 import { Swipeable, GestureHandlerRootView } from 'react-native-gesture-handler';
+import DateTimePicker from '@react-native-community/datetimepicker';
 
 import ParallaxScrollView from '@/components/ParallaxScrollView';
 import { ThemedText } from '@/components/ThemedText';
@@ -12,11 +13,14 @@ interface TodoItem {
   text: string;
   completed: boolean;
   completed_at: string | null;
+  due_date: string | null;
 }
 
 export default function HomeScreen() {
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [inputText, setInputText] = useState('');
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [selectedTodoId, setSelectedTodoId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchTodos();
@@ -42,7 +46,8 @@ export default function HomeScreen() {
         id: Date.now().toString(),
         text: inputText,
         completed: false,
-        completed_at: null
+        completed_at: null,
+        due_date: null
       };
       
       try {
@@ -101,6 +106,35 @@ export default function HomeScreen() {
     }
   };
 
+  const handleUpdateDueDate = async (id: string, date: Date | null) => {
+    try {
+      const due_date = date ? date.toISOString() : null;
+      
+      const { error } = await supabase
+        .from('todos')
+        .update({ due_date })
+        .eq('id', id);
+
+      if (error) throw error;
+      
+      setTodos(currentTodos => 
+        currentTodos.map(todo => 
+          todo.id === id ? { ...todo, due_date } : todo
+        )
+      );
+    } catch (error) {
+      console.error('Error updating due date:', error);
+    }
+  };
+
+  const onDateChange = (event: any, selectedDate?: Date) => {
+    setShowDatePicker(false);
+    
+    if (selectedDate && selectedTodoId) {
+      handleUpdateDueDate(selectedTodoId, selectedDate);
+    }
+  };
+
   const renderRightActions = (dragX: Animated.AnimatedInterpolation<number>, id: string) => {
     const scale = dragX.interpolate({
       inputRange: [-100, 0],
@@ -139,15 +173,77 @@ export default function HomeScreen() {
         >
           {item.completed && <ThemedText style={styles.checkmark}>✓</ThemedText>}
         </TouchableOpacity>
-        <ThemedText style={[
-          styles.todoTextContent,
-          item.completed && styles.completedText
-        ]}>
-          {item.text}
-        </ThemedText>
+        <ThemedView style={styles.todoTextContainer}>
+          <ThemedText style={[
+            styles.todoTextContent,
+            item.completed && styles.completedText
+          ]}>
+            {item.text}
+          </ThemedText>
+          <ThemedView style={styles.todoMetaContainer}>
+            {item.due_date && (
+              <ThemedText style={[styles.metaText, 
+                new Date(item.due_date) < new Date() ? styles.overdue : null
+              ]}>
+                Due: {new Date(item.due_date).toLocaleDateString()}
+              </ThemedText>
+            )}
+          </ThemedView>
+        </ThemedView>
+        <TouchableOpacity 
+          style={styles.calendarButton}
+          onPress={() => {
+            setSelectedTodoId(item.id);
+            setShowDatePicker(true);
+          }}
+        >
+          <ThemedText style={styles.calendarIcon}>📅</ThemedText>
+        </TouchableOpacity>
       </ThemedView>
     </Swipeable>
   );
+
+  const renderDatePicker = () => {
+    if (Platform.OS === 'web') {
+      return (
+        <ThemedView style={styles.webDatePickerContainer}>
+          <input
+            type="date"
+            onChange={(e) => {
+              const date = e.target.value ? new Date(e.target.value) : null;
+              if (selectedTodoId) {
+                handleUpdateDueDate(selectedTodoId, date);
+              }
+              setShowDatePicker(false);
+            }}
+            style={{
+              padding: 10,
+              fontSize: 16,
+              border: '1px solid #ccc',
+              borderRadius: 8,
+            }}
+            min={new Date().toISOString().split('T')[0]}
+          />
+          <TouchableOpacity 
+            onPress={() => setShowDatePicker(false)}
+            style={styles.webDatePickerCloseButton}
+          >
+            <ThemedText>Close</ThemedText>
+          </TouchableOpacity>
+        </ThemedView>
+      );
+    }
+
+    return (
+      <DateTimePicker
+        value={new Date()}
+        mode="date"
+        display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+        onChange={onDateChange}
+        minimumDate={new Date()}
+      />
+    );
+  };
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -180,6 +276,16 @@ export default function HomeScreen() {
           style={styles.list}
           contentContainerStyle={styles.listContent}
         />
+        
+        {showDatePicker && (
+          Platform.OS === 'web' ? (
+            <ThemedView style={styles.webDatePickerOverlay}>
+              {renderDatePicker()}
+            </ThemedView>
+          ) : (
+            renderDatePicker()
+          )
+        )}
       </ThemedView>
     </GestureHandlerRootView>
   );
@@ -267,5 +373,56 @@ const styles = StyleSheet.create({
   completedText: {
     textDecorationLine: 'line-through',
     color: '#888',
+  },
+  todoTextContainer: {
+    flex: 1,
+  },
+  todoMetaContainer: {
+    flexDirection: 'row',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  metaText: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 4,
+  },
+  overdue: {
+    color: '#FF3B30',
+  },
+  calendarButton: {
+    padding: 8,
+    marginLeft: 8,
+  },
+  calendarIcon: {
+    fontSize: 20,
+  },
+  webDatePickerOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  webDatePickerContainer: {
+    backgroundColor: '#fff',
+    padding: 20,
+    borderRadius: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+    gap: 10,
+  },
+  webDatePickerCloseButton: {
+    padding: 10,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 8,
+    alignItems: 'center',
   },
 });
