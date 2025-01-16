@@ -1,4 +1,4 @@
-import { StyleSheet, TextInput, TouchableOpacity, FlatList, Animated, Platform } from 'react-native';
+import { StyleSheet, TextInput, TouchableOpacity, FlatList, Animated, Platform, RefreshControl } from 'react-native';
 import { useState, useEffect } from 'react';
 import { Swipeable, GestureHandlerRootView } from 'react-native-gesture-handler';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -15,6 +15,7 @@ interface TodoItem {
   completed: boolean;
   completed_at: string | null;
   due_date: string | null;
+  created_at: string;
 }
 
 export default function HomeScreen() {
@@ -22,6 +23,7 @@ export default function HomeScreen() {
   const [inputText, setInputText] = useState('');
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [selectedTodoId, setSelectedTodoId] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     fetchTodos();
@@ -32,6 +34,8 @@ export default function HomeScreen() {
       const { data, error } = await supabase
         .from('todos')
         .select('*')
+        .order('completed', { ascending: true })
+        .order('due_date', { ascending: true, nullsLast: true })
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -48,7 +52,8 @@ export default function HomeScreen() {
         text: inputText,
         completed: false,
         completed_at: null,
-        due_date: null
+        due_date: null,
+        created_at: new Date().toISOString()
       };
       
       try {
@@ -58,7 +63,7 @@ export default function HomeScreen() {
 
         if (error) throw error;
         
-        setTodos(currentTodos => [...currentTodos, newTodo]);
+        setTodos(currentTodos => sortTodos([...currentTodos, newTodo]));
         setInputText('');
       } catch (error) {
         console.error('Error adding todo:', error);
@@ -81,6 +86,27 @@ export default function HomeScreen() {
     }
   };
 
+  // Helper function for sorting todos
+  const sortTodos = (todos: TodoItem[]) => {
+    return todos.sort((a, b) => {
+      // First, sort by completion status
+      if (a.completed !== b.completed) {
+        return a.completed ? 1 : -1;
+      }
+      
+      // Then, sort by due date (nulls last)
+      if (a.due_date !== b.due_date) {
+        if (!a.due_date) return 1;
+        if (!b.due_date) return -1;
+        return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
+      }
+      
+      // Finally, sort by creation date (newest first)
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+  };
+
+
   const toggleTodoComplete = async (id: string, completed: boolean) => {
     try {
       const completed_at = !completed ? new Date().toISOString() : null;
@@ -95,13 +121,14 @@ export default function HomeScreen() {
 
       if (error) throw error;
       
-      setTodos(currentTodos => 
-        currentTodos.map(todo => 
+      setTodos(currentTodos => {
+        const updatedTodos = currentTodos.map(todo => 
           todo.id === id 
             ? { ...todo, completed: !todo.completed, completed_at } 
             : todo
-        )
-      );
+        );
+        return sortTodos(updatedTodos);
+      });
     } catch (error) {
       console.error('Error updating todo:', error);
     }
@@ -246,6 +273,12 @@ export default function HomeScreen() {
     );
   };
 
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await fetchTodos();
+    setRefreshing(false);
+  };
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <LinearGradient
@@ -281,6 +314,15 @@ export default function HomeScreen() {
           renderItem={renderTodoItem}
           style={styles.list}
           contentContainerStyle={styles.listContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor="#ffffff"
+              colors={['#ffffff']}
+              progressBackgroundColor="#3B82F6"
+            />
+          }
         />
         
         {showDatePicker && (
@@ -302,6 +344,7 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 20,
     gap: 20,
+    paddingTop: Platform.OS === 'ios' ? 60 : 40,
   },
   inputContainer: {
     flexDirection: 'row',
