@@ -7,6 +7,7 @@ import ParallaxScrollView from '@/components/ParallaxScrollView';
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
 import { supabase } from '@/lib/supabase';
+import { LinearGradient } from 'expo-linear-gradient';
 
 interface TodoItem {
   id: string;
@@ -247,7 +248,12 @@ export default function HomeScreen() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <ThemedView style={styles.container}>
+      <LinearGradient
+        colors={['#3B82F6', '#9333EA']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={styles.container}
+      >
         <ThemedText type="title">Todo List</ThemedText>
         
         <ThemedView style={styles.inputContainer}>
@@ -286,7 +292,7 @@ export default function HomeScreen() {
             renderDatePicker()
           )
         )}
-      </ThemedView>
+      </LinearGradient>
     </GestureHandlerRootView>
   );
 }
@@ -376,11 +382,13 @@ const styles = StyleSheet.create({
   },
   todoTextContainer: {
     flex: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
   todoMetaContainer: {
     flexDirection: 'row',
     gap: 8,
     flexWrap: 'wrap',
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
   metaText: {
     fontSize: 12,
