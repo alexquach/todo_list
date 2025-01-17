@@ -2,6 +2,7 @@ import { StyleSheet, TextInput, TouchableOpacity, FlatList, Animated, Platform, 
 import { useState, useEffect } from 'react';
 import { Swipeable, GestureHandlerRootView } from 'react-native-gesture-handler';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import * as Haptics from 'expo-haptics';
 
 import ParallaxScrollView from '@/components/ParallaxScrollView';
 import { ThemedText } from '@/components/ThemedText';
@@ -47,6 +48,10 @@ export default function HomeScreen() {
 
   const handleAddTodo = async () => {
     if (inputText.trim().length > 0) {
+      await Haptics.notificationAsync(
+        Haptics.NotificationFeedbackType.Success
+      );
+
       const newTodo: TodoItem = {
         id: Date.now().toString(),
         text: inputText,
@@ -66,6 +71,9 @@ export default function HomeScreen() {
         setTodos(currentTodos => sortTodos([...currentTodos, newTodo]));
         setInputText('');
       } catch (error) {
+        await Haptics.notificationAsync(
+          Haptics.NotificationFeedbackType.Error
+        );
         console.error('Error adding todo:', error);
       }
     }
@@ -109,6 +117,16 @@ export default function HomeScreen() {
 
   const toggleTodoComplete = async (id: string, completed: boolean) => {
     try {
+      if (!completed) {
+        await Haptics.notificationAsync(
+          Haptics.NotificationFeedbackType.Success
+        );
+      } else {
+        await Haptics.impactAsync(
+          Haptics.ImpactFeedbackStyle.Medium
+        );
+      }
+
       const completed_at = !completed ? new Date().toISOString() : null;
       
       const { error } = await supabase
@@ -130,6 +148,9 @@ export default function HomeScreen() {
         return sortTodos(updatedTodos);
       });
     } catch (error) {
+      await Haptics.notificationAsync(
+        Haptics.NotificationFeedbackType.Error
+      );
       console.error('Error updating todo:', error);
     }
   };
