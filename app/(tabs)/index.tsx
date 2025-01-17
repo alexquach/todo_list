@@ -1,5 +1,5 @@
 import { StyleSheet, TextInput, TouchableOpacity, FlatList, Animated, Platform, RefreshControl } from 'react-native';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Swipeable, GestureHandlerRootView } from 'react-native-gesture-handler';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as Haptics from 'expo-haptics';
@@ -31,6 +31,7 @@ export default function HomeScreen() {
   const [selectedTodoId, setSelectedTodoId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [datePickerPosition, setDatePickerPosition] = useState<DatePickerPosition | null>(null);
+  const inputRef = useRef<TextInput>(null);
 
   useEffect(() => {
     fetchTodos();
@@ -78,6 +79,7 @@ export default function HomeScreen() {
         
         setTodos(currentTodos => sortTodos([...currentTodos, newTodo]));
         setInputText('');
+        inputRef.current?.focus();
       } catch (error) {
         if (Platform.OS !== 'web') {
           await Haptics.notificationAsync(
@@ -181,9 +183,9 @@ export default function HomeScreen() {
       if (error) throw error;
       
       setTodos(currentTodos => 
-        currentTodos.map(todo => 
+        sortTodos(currentTodos.map(todo => 
           todo.id === id ? { ...todo, due_date } : todo
-        )
+        ))
       );
     } catch (error) {
       console.error('Error updating due date:', error);
@@ -349,6 +351,7 @@ export default function HomeScreen() {
         
         <ThemedView style={styles.inputContainer}>
           <TextInput
+            ref={inputRef}
             style={styles.input}
             value={inputText}
             onChangeText={setInputText}
@@ -427,12 +430,29 @@ const styles = StyleSheet.create({
   },
   list: {
     flex: 1,
+    ...(Platform.OS === 'web' ? {
+      '::-webkit-scrollbar': {
+        width: '8px',
+      },
+      '::-webkit-scrollbar-track': {
+        background: 'transparent',
+      },
+      '::-webkit-scrollbar-thumb': {
+        background: 'rgba(255, 255, 255, 0.3)',
+        borderRadius: '4px',
+      },
+      '::-webkit-scrollbar-thumb:hover': {
+        background: 'rgba(255, 255, 255, 0.5)',
+      },
+      'scrollbar-width': 'thin',
+      'scrollbar-color': 'rgba(255, 255, 255, 0.3) transparent',
+    } : {}),
   },
   todoItem: {
     backgroundColor: '#f8f8f8',
-    padding: 16,
-    marginBottom: 10,
-    borderRadius: 8,
+    padding: 8,
+    marginBottom: 2,
+    borderRadius: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.2,
@@ -440,6 +460,11 @@ const styles = StyleSheet.create({
     elevation: 2,
     flexDirection: 'row',
     alignItems: 'center',
+    ...(Platform.OS === 'web' ? {
+      maxWidth: 390, // Match container width
+      alignSelf: 'center',
+      width: '100%',
+    } : {}),
   },
   todoTextContent: {
     fontSize: 16,
