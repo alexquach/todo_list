@@ -34,6 +34,8 @@ export default function HomeScreen() {
   const [datePickerPosition, setDatePickerPosition] = useState<DatePickerPosition | null>(null);
   const inputRef = useRef<TextInput>(null);
   const tabBarHeight = useBottomTabBarHeight();
+  const [autoSetDueDate, setAutoSetDueDate] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(new Date());
 
   useEffect(() => {
     fetchTodos();
@@ -63,12 +65,15 @@ export default function HomeScreen() {
         );
       }
 
+      const today = new Date();
+      today.setHours(12, 0, 0, 0);
+
       const newTodo: TodoItem = {
         id: Date.now().toString(),
         text: inputText,
         completed: false,
         completed_at: null,
-        due_date: null,
+        due_date: autoSetDueDate ? today.toISOString() : null,
         created_at: new Date().toISOString()
       };
       
@@ -198,6 +203,8 @@ export default function HomeScreen() {
     setShowDatePicker(false);
     
     if (selectedDate && selectedTodoId) {
+      // Set time to noon
+      selectedDate.setHours(12, 0, 0, 0);
       handleUpdateDueDate(selectedTodoId, selectedDate);
     }
   };
@@ -230,6 +237,12 @@ export default function HomeScreen() {
     const { pageX, pageY } = event.nativeEvent;
     setDatePickerPosition({ x: pageX, y: pageY });
     setSelectedTodoId(todoId);
+    
+    // Set the initial date based on the todo's due date or current date
+    const todo = todos.find(t => t.id === todoId);
+    const initialDate = todo?.due_date ? new Date(todo.due_date) : new Date(Date.now() - 86400000);
+    setSelectedDate(initialDate);
+    
     setShowDatePicker(true);
   };
 
@@ -327,7 +340,7 @@ export default function HomeScreen() {
 
     return (
       <DateTimePicker
-        value={new Date()}
+        value={selectedDate}
         mode="date"
         display={Platform.OS === 'android' ? 'calendar' : 'inline'}
         onChange={onDateChange}
@@ -366,6 +379,12 @@ export default function HomeScreen() {
             returnKeyType="done"
           />
           <TouchableOpacity 
+            style={[styles.autoDateToggle, autoSetDueDate && styles.autoDateToggleActive]} 
+            onPress={() => setAutoSetDueDate(!autoSetDueDate)}
+          >
+            <ThemedText style={styles.autoDateToggleText}>📅</ThemedText>
+          </TouchableOpacity>
+          <TouchableOpacity 
             style={styles.addButton} 
             onPress={handleAddTodo}
             activeOpacity={0.7}
@@ -392,11 +411,20 @@ export default function HomeScreen() {
         />
         
         {showDatePicker && (
-          Platform.OS === 'web' ? (
-            renderDatePicker()
-          ) : (
-            renderDatePicker()
-          )
+          <>
+            <TouchableOpacity 
+              style={styles.datePickerBackdrop} 
+              onPress={() => {
+                setShowDatePicker(false);
+                setDatePickerPosition(null);
+              }}
+            />
+            {Platform.OS === 'web' ? (
+              renderDatePicker()
+            ) : (
+              renderDatePicker()
+            )}
+          </>
         )}
       </LinearGradient>
     </GestureHandlerRootView>
@@ -552,5 +580,31 @@ const styles = StyleSheet.create({
     shadowRadius: 3.84,
     elevation: 5,
     zIndex: 1000,
+  },
+  autoDateToggle: {
+    padding: 12,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#ccc',
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+  },
+  autoDateToggleActive: {
+    backgroundColor: '#007AFF',
+    borderColor: '#007AFF',
+  },
+  autoDateToggleText: {
+    color: '#007AFF',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  datePickerBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'transparent',
   },
 });
