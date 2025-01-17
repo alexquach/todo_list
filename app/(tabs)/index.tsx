@@ -348,12 +348,26 @@ export default function HomeScreen() {
     }
 
     return (
-      <DateTimePicker
-        value={selectedDate}
-        mode="date"
-        display={Platform.OS === 'android' ? 'calendar' : 'inline'}
-        onChange={onDateChange}
-      />
+      <ThemedView>
+        <TouchableOpacity
+          style={styles.clearDateButton}
+          onPress={() => {
+            if (selectedTodoId) {
+              handleUpdateDueDate(selectedTodoId, null);
+            }
+            setShowDatePicker(false);
+            setDatePickerPosition(null);
+          }}
+        >
+          <ThemedText style={styles.clearDateText}>Clear Date</ThemedText>
+        </TouchableOpacity>
+        <DateTimePicker
+          value={selectedDate}
+          mode="date"
+          display={Platform.OS === 'android' ? 'calendar' : 'inline'}
+          onChange={onDateChange}
+        />
+      </ThemedView>
     );
   };
 
@@ -623,6 +637,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     width: '100%',
+    marginBottom: 10,
   },
   clearDateText: {
     color: '#FF3B30',
