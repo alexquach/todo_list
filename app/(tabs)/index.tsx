@@ -19,12 +19,18 @@ interface TodoItem {
   created_at: string;
 }
 
+interface DatePickerPosition {
+  x: number;
+  y: number;
+}
+
 export default function HomeScreen() {
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [inputText, setInputText] = useState('');
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [selectedTodoId, setSelectedTodoId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [datePickerPosition, setDatePickerPosition] = useState<DatePickerPosition | null>(null);
 
   useEffect(() => {
     fetchTodos();
@@ -208,6 +214,13 @@ export default function HomeScreen() {
     );
   };
 
+  const showDatePickerAtPosition = (event: any, todoId: string) => {
+    const { pageX, pageY } = event.nativeEvent;
+    setDatePickerPosition({ x: pageX, y: pageY });
+    setSelectedTodoId(todoId);
+    setShowDatePicker(true);
+  };
+
   const renderTodoItem = ({ item }: { item: TodoItem }) => (
     <Swipeable
       renderRightActions={(progress, dragX) => 
@@ -241,10 +254,7 @@ export default function HomeScreen() {
         </ThemedView>
         <TouchableOpacity 
           style={styles.calendarButton}
-          onPress={() => {
-            setSelectedTodoId(item.id);
-            setShowDatePicker(true);
-          }}
+          onPress={(event) => showDatePickerAtPosition(event, item.id)}
         >
           <ThemedText style={styles.calendarIcon}>📅</ThemedText>
         </TouchableOpacity>
@@ -255,30 +265,50 @@ export default function HomeScreen() {
   const renderDatePicker = () => {
     if (Platform.OS === 'web') {
       return (
-        <ThemedView style={styles.webDatePickerContainer}>
+        <ThemedView 
+          style={[
+            styles.webDatePickerContainer,
+            datePickerPosition && {
+              position: 'absolute',
+              left: datePickerPosition.x - 150,
+              top: datePickerPosition.y + 10,
+            }
+          ]}
+        >
           <input
             type="date"
             onChange={(e) => {
-              const date = e.target.value ? new Date(e.target.value) : null;
+              const date = e.target.value ? new Date(e.target.value + 'T12:00:00') : null;
               if (selectedTodoId) {
                 handleUpdateDueDate(selectedTodoId, date);
               }
               setShowDatePicker(false);
+              setDatePickerPosition(null);
             }}
             style={{
               padding: 10,
               fontSize: 16,
               border: '1px solid #ccc',
               borderRadius: 8,
+              position: 'relative',
+              '::-webkit-calendar-picker-indicator': {
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                width: '100%',
+                height: '100%',
+                opacity: 0,
+              }
             }}
-            min={new Date().toISOString().split('T')[0]}
+            onClick={(e: any) => e.target.showPicker()}
+            ref={(input) => {
+              if (input) {
+                setTimeout(() => input.showPicker(), 0);
+              }
+            }}
           />
-          <TouchableOpacity 
-            onPress={() => setShowDatePicker(false)}
-            style={styles.webDatePickerCloseButton}
-          >
-            <ThemedText>Close</ThemedText>
-          </TouchableOpacity>
         </ThemedView>
       );
     }
@@ -287,9 +317,8 @@ export default function HomeScreen() {
       <DateTimePicker
         value={new Date()}
         mode="date"
-        display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+        display={Platform.OS === 'android' ? 'calendar' : 'inline'}
         onChange={onDateChange}
-        minimumDate={new Date()}
       />
     );
   };
@@ -348,9 +377,7 @@ export default function HomeScreen() {
         
         {showDatePicker && (
           Platform.OS === 'web' ? (
-            <ThemedView style={styles.webDatePickerOverlay}>
-              {renderDatePicker()}
-            </ThemedView>
+            renderDatePicker()
           ) : (
             renderDatePicker()
           )
@@ -469,32 +496,15 @@ const styles = StyleSheet.create({
   calendarIcon: {
     fontSize: 20,
   },
-  webDatePickerOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 1000,
-  },
   webDatePickerContainer: {
     backgroundColor: '#fff',
-    padding: 20,
+    padding: 10,
     borderRadius: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
     elevation: 5,
-    gap: 10,
-  },
-  webDatePickerCloseButton: {
-    padding: 10,
-    backgroundColor: '#f0f0f0',
-    borderRadius: 8,
-    alignItems: 'center',
+    zIndex: 1000,
   },
 });
