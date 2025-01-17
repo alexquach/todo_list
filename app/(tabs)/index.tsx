@@ -413,6 +413,7 @@ const styles = StyleSheet.create({
   inputContainer: {
     flexDirection: 'row',
     gap: 10,
+    backgroundColor: 'transparent',
   },
   input: {
     flex: 1,
