@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Swipeable, GestureHandlerRootView } from 'react-native-gesture-handler';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as Haptics from 'expo-haptics';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 
 import ParallaxScrollView from '@/components/ParallaxScrollView';
 import { ThemedText } from '@/components/ThemedText';
@@ -32,6 +33,7 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [datePickerPosition, setDatePickerPosition] = useState<DatePickerPosition | null>(null);
   const inputRef = useRef<TextInput>(null);
+  const tabBarHeight = useBottomTabBarHeight();
 
   useEffect(() => {
     fetchTodos();
@@ -345,7 +347,10 @@ export default function HomeScreen() {
         colors={['#3B82F6', '#9333EA']}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 0 }}
-        style={styles.container}
+        style={[
+          styles.container,
+          Platform.OS !== 'web' && { paddingBottom: tabBarHeight }
+        ]}
       >
         <ThemedText type="title">Todo List</ThemedText>
         
@@ -446,7 +451,10 @@ const styles = StyleSheet.create({
       },
       'scrollbar-width': 'thin',
       'scrollbar-color': 'rgba(255, 255, 255, 0.3) transparent',
-    } : {}),
+    } : {
+      marginRight: -12,
+      paddingRight: 12,
+    }),
   },
   todoItem: {
     backgroundColor: '#f8f8f8',
