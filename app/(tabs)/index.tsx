@@ -254,15 +254,15 @@ export default function HomeScreen() {
           ]}>
             {item.text}
           </ThemedText>
-          <ThemedView style={styles.todoMetaContainer}>
-            {item.due_date && (
+          {item.due_date && (
+            <TouchableOpacity onPress={(event) => showDatePickerAtPosition(event, item.id)}>
               <ThemedText style={[styles.metaText, 
                 new Date(item.due_date) < new Date() ? styles.overdue : null
               ]}>
-                Due: {new Date(item.due_date).toLocaleDateString()}
+                {new Date(item.due_date).toLocaleString('en-US', { weekday: 'short' }) + ', ' + new Date(item.due_date).toLocaleString('en-US', { month: 'numeric', day: 'numeric' })}
               </ThemedText>
-            )}
-          </ThemedView>
+            </TouchableOpacity>
+          )}
         </ThemedView>
         <TouchableOpacity 
           style={styles.calendarButton}
@@ -478,6 +478,7 @@ const styles = StyleSheet.create({
   todoTextContent: {
     fontSize: 16,
     color: '#333',
+    flex: 1,
   },
   deleteAction: {
     backgroundColor: '#FF3B30',
@@ -515,18 +516,21 @@ const styles = StyleSheet.create({
   },
   todoTextContainer: {
     flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
   todoMetaContainer: {
     flexDirection: 'row',
-    gap: 8,
-    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
   metaText: {
     fontSize: 12,
     color: '#666',
-    marginTop: 4,
+    marginLeft: 8,
   },
   overdue: {
     color: '#FF3B30',
