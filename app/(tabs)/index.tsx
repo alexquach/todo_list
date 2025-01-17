@@ -54,9 +54,11 @@ export default function HomeScreen() {
 
   const handleAddTodo = async () => {
     if (inputText.trim().length > 0) {
-      await Haptics.notificationAsync(
-        Haptics.NotificationFeedbackType.Success
-      );
+      if (Platform.OS !== 'web') {
+        await Haptics.notificationAsync(
+          Haptics.NotificationFeedbackType.Success
+        );
+      }
 
       const newTodo: TodoItem = {
         id: Date.now().toString(),
@@ -77,9 +79,11 @@ export default function HomeScreen() {
         setTodos(currentTodos => sortTodos([...currentTodos, newTodo]));
         setInputText('');
       } catch (error) {
-        await Haptics.notificationAsync(
-          Haptics.NotificationFeedbackType.Error
-        );
+        if (Platform.OS !== 'web') {
+          await Haptics.notificationAsync(
+            Haptics.NotificationFeedbackType.Error
+          );
+        }
         console.error('Error adding todo:', error);
       }
     }
@@ -123,14 +127,16 @@ export default function HomeScreen() {
 
   const toggleTodoComplete = async (id: string, completed: boolean) => {
     try {
-      if (!completed) {
-        await Haptics.notificationAsync(
-          Haptics.NotificationFeedbackType.Success
-        );
-      } else {
-        await Haptics.impactAsync(
-          Haptics.ImpactFeedbackStyle.Medium
-        );
+      if (Platform.OS !== 'web') {
+        if (!completed) {
+          await Haptics.notificationAsync(
+            Haptics.NotificationFeedbackType.Success
+          );
+        } else {
+          await Haptics.impactAsync(
+            Haptics.ImpactFeedbackStyle.Medium
+          );
+        }
       }
 
       const completed_at = !completed ? new Date().toISOString() : null;
@@ -154,9 +160,11 @@ export default function HomeScreen() {
         return sortTodos(updatedTodos);
       });
     } catch (error) {
-      await Haptics.notificationAsync(
-        Haptics.NotificationFeedbackType.Error
-      );
+      if (Platform.OS !== 'web') {
+        await Haptics.notificationAsync(
+          Haptics.NotificationFeedbackType.Error
+        );
+      }
       console.error('Error updating todo:', error);
     }
   };
