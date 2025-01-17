@@ -300,6 +300,18 @@ export default function HomeScreen() {
             }
           ]}
         >
+          <TouchableOpacity
+            onPress={() => {
+              if (selectedTodoId) {
+                handleUpdateDueDate(selectedTodoId, null);
+              }
+              setShowDatePicker(false);
+              setDatePickerPosition(null);
+            }}
+            style={styles.clearDateButton}
+          >
+            <ThemedText style={styles.clearDateText}>Clear Date</ThemedText>
+          </TouchableOpacity>
           <input
             type="date"
             onChange={(e) => {
@@ -311,21 +323,18 @@ export default function HomeScreen() {
               setDatePickerPosition(null);
             }}
             style={{
-              padding: 10,
-              fontSize: 16,
-              border: '1px solid #ccc',
-              borderRadius: 8,
-              position: 'relative',
-              '::-webkit-calendar-picker-indicator': {
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                width: '100%',
-                height: '100%',
-                opacity: 0,
-              }
+              opacity: 0,
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              width: '100%',
+              height: '100%',
+              padding: 0,
+              margin: 0,
+              cursor: 'pointer',
+              zIndex: -1,
             }}
             onClick={(e: any) => e.target.showPicker()}
             ref={(input) => {
@@ -606,5 +615,18 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     backgroundColor: 'transparent',
+  },
+  clearDateButton: {
+    padding: 10,
+    backgroundColor: '#f8f8f8',
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+  },
+  clearDateText: {
+    color: '#FF3B30',
+    fontSize: 14,
+    fontWeight: '500',
   },
 });
