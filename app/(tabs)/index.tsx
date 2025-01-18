@@ -47,9 +47,14 @@ export default function HomeScreen() {
 
   const fetchTodos = async () => {
     try {
+      const oneDayAgo = new Date();
+      oneDayAgo.setDate(oneDayAgo.getDate() - 1);
+      oneDayAgo.setHours(0, 0, 0, 0);
+
       const { data, error } = await supabase
         .from('todos')
         .select('*')
+        .or(`completed_at.gt.${oneDayAgo.toISOString()},completed_at.is.null`)
         .order('completed', { ascending: false })
         .order('due_date', { ascending: false, nullsLast: true })
         .order('created_at', { ascending: false });
