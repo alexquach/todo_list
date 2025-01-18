@@ -36,6 +36,8 @@ export default function HomeScreen() {
   const tabBarHeight = useBottomTabBarHeight();
   const [autoSetDueDate, setAutoSetDueDate] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState('');
 
   useEffect(() => {
     fetchTodos();
@@ -246,6 +248,25 @@ export default function HomeScreen() {
     setShowDatePicker(true);
   };
 
+  const handleUpdateTodoText = async (id: string, newText: string) => {
+    try {
+      const { error } = await supabase
+        .from('todos')
+        .update({ text: newText })
+        .eq('id', id);
+
+      if (error) throw error;
+      
+      setTodos(currentTodos => 
+        currentTodos.map(todo => 
+          todo.id === id ? { ...todo, text: newText } : todo
+        )
+      );
+    } catch (error) {
+      console.error('Error updating todo text:', error);
+    }
+  };
+
   const renderTodoItem = ({ item }: { item: TodoItem }) => (
     <Swipeable
       renderRightActions={(progress, dragX) => 
@@ -261,12 +282,54 @@ export default function HomeScreen() {
           {item.completed && <ThemedText style={styles.checkmark}>✓</ThemedText>}
         </TouchableOpacity>
         <ThemedView style={styles.todoTextContainer}>
-          <ThemedText style={[
-            styles.todoTextContent,
-            item.completed && styles.completedText
-          ]}>
-            {item.text}
-          </ThemedText>
+          {editingTodoId === item.id ? (
+            <TextInput
+              value={editingText}
+              onChangeText={setEditingText}
+              style={[styles.todoTextContent, styles.editInput]}
+              autoFocus
+              onBlur={() => {
+                if (editingText.trim() !== '') {
+                  handleUpdateTodoText(item.id, editingText);
+                }
+                setEditingTodoId(null);
+              }}
+              onSubmitEditing={() => {
+                if (editingText.trim() !== '') {
+                  handleUpdateTodoText(item.id, editingText);
+                }
+                setEditingTodoId(null);
+              }}
+            />
+          ) : (
+            <TouchableOpacity 
+              onPress={() => {
+                if (Platform.OS === 'web') {
+                  let lastClick = (item as any).lastClick;
+                  const currentTime = new Date().getTime();
+                  if (lastClick && currentTime - lastClick < 300) {
+                    setEditingTodoId(item.id);
+                    setEditingText(item.text);
+                  }
+                  (item as any).lastClick = currentTime;
+                }
+              }}
+              onLongPress={() => {
+                if (Platform.OS !== 'web') {
+                  setEditingTodoId(item.id);
+                  setEditingText(item.text);
+                }
+              }}
+              style={styles.todoTextWrapper}
+            >
+              <ThemedText style={[
+                styles.todoTextContent,
+                item.completed && styles.completedText
+              ]}>
+                {item.text}
+              </ThemedText>
+            </TouchableOpacity>
+          )}
           {item.due_date && (
             <TouchableOpacity onPress={(event) => showDatePickerAtPosition(event, item.id)}>
               <ThemedText style={[styles.metaText, 
@@ -526,10 +589,15 @@ const styles = StyleSheet.create({
       width: '100%',
     } : {}),
   },
+  todoTextWrapper: {
+    flex: 1,
+    paddingVertical: 4,
+  },
   todoTextContent: {
     fontSize: 16,
     color: '#333',
-    flex: 1,
+    flexWrap: 'wrap',
+    flexShrink: 1,
   },
   deleteAction: {
     backgroundColor: '#FF3B30',
@@ -643,5 +711,14 @@ const styles = StyleSheet.create({
     color: '#FF3B30',
     fontSize: 14,
     fontWeight: '500',
+  },
+  editInput: {
+    padding: 0,
+    margin: 0,
+    color: '#333',
+    flex: 1,
+    minHeight: 20,
+    fontSize: 16,
+    flexWrap: 'wrap',
   },
 });
