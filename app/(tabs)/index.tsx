@@ -267,88 +267,110 @@ export default function HomeScreen() {
     }
   };
 
-  const renderTodoItem = ({ item }: { item: TodoItem }) => (
-    <Swipeable
-      renderRightActions={(progress, dragX) => 
-        renderRightActions(dragX, item.id)
-      }
-      rightThreshold={-100}
-    >
-      <ThemedView style={styles.todoItem}>
-        <TouchableOpacity 
-          style={styles.checkbox}
-          onPress={() => toggleTodoComplete(item.id, item.completed)}
-        >
-          {item.completed && <ThemedText style={styles.checkmark}>✓</ThemedText>}
-        </TouchableOpacity>
-        <ThemedView style={styles.todoTextContainer}>
-          {editingTodoId === item.id ? (
-            <TextInput
-              value={editingText}
-              onChangeText={setEditingText}
-              style={[styles.todoTextContent, styles.editInput]}
-              autoFocus
-              onBlur={() => {
-                if (editingText.trim() !== '') {
-                  handleUpdateTodoText(item.id, editingText);
-                }
-                setEditingTodoId(null);
-              }}
-              onSubmitEditing={() => {
-                if (editingText.trim() !== '') {
-                  handleUpdateTodoText(item.id, editingText);
-                }
-                setEditingTodoId(null);
-              }}
-            />
-          ) : (
-            <TouchableOpacity 
-              onPress={() => {
-                if (Platform.OS === 'web') {
-                  let lastClick = (item as any).lastClick;
-                  const currentTime = new Date().getTime();
-                  if (lastClick && currentTime - lastClick < 300) {
+  const renderTodoItem = ({ item, index }: { item: TodoItem, index: number }) => {
+    // Check if next/previous items have different completion status or due date
+    const nextItem = todos[index + 1];
+    const prevItem = todos[index - 1];
+    
+    const isLastCompleted = item.completed && (!nextItem || !nextItem.completed);
+    const currentDate = item.due_date ? new Date(item.due_date).toDateString() : null;
+    const nextDate = nextItem?.due_date ? new Date(nextItem.due_date).toDateString() : null;
+    const prevDate = prevItem?.due_date ? new Date(prevItem.due_date).toDateString() : null;
+    const isLastInDateGroup = !item.completed && currentDate !== nextDate;
+    
+    const isFirstInGroup = item.completed ? 
+      (!prevItem || !prevItem.completed) : 
+      (currentDate !== prevDate);
+    const isLastInGroup = isLastCompleted || isLastInDateGroup;
+
+    return (
+      <Swipeable
+        renderRightActions={(progress, dragX) => 
+          renderRightActions(dragX, item.id)
+        }
+        rightThreshold={-100}
+      >
+        <ThemedView style={[
+          styles.todoItem,
+          isFirstInGroup && styles.firstInGroup,
+          isLastInGroup && styles.lastInGroup,
+          !isFirstInGroup && !isLastInGroup && styles.middleItem
+        ]}>
+          <TouchableOpacity 
+            style={styles.checkbox}
+            onPress={() => toggleTodoComplete(item.id, item.completed)}
+          >
+            {item.completed && <ThemedText style={styles.checkmark}>✓</ThemedText>}
+          </TouchableOpacity>
+          <ThemedView style={styles.todoTextContainer}>
+            {editingTodoId === item.id ? (
+              <TextInput
+                value={editingText}
+                onChangeText={setEditingText}
+                style={[styles.todoTextContent, styles.editInput]}
+                autoFocus
+                onBlur={() => {
+                  if (editingText.trim() !== '') {
+                    handleUpdateTodoText(item.id, editingText);
+                  }
+                  setEditingTodoId(null);
+                }}
+                onSubmitEditing={() => {
+                  if (editingText.trim() !== '') {
+                    handleUpdateTodoText(item.id, editingText);
+                  }
+                  setEditingTodoId(null);
+                }}
+              />
+            ) : (
+              <TouchableOpacity 
+                onPress={() => {
+                  if (Platform.OS === 'web') {
+                    let lastClick = (item as any).lastClick;
+                    const currentTime = new Date().getTime();
+                    if (lastClick && currentTime - lastClick < 300) {
+                      setEditingTodoId(item.id);
+                      setEditingText(item.text);
+                    }
+                    (item as any).lastClick = currentTime;
+                  }
+                }}
+                onLongPress={() => {
+                  if (Platform.OS !== 'web') {
                     setEditingTodoId(item.id);
                     setEditingText(item.text);
                   }
-                  (item as any).lastClick = currentTime;
-                }
-              }}
-              onLongPress={() => {
-                if (Platform.OS !== 'web') {
-                  setEditingTodoId(item.id);
-                  setEditingText(item.text);
-                }
-              }}
-              style={styles.todoTextWrapper}
-            >
-              <ThemedText style={[
-                styles.todoTextContent,
-                item.completed && styles.completedText
-              ]}>
-                {item.text}
-              </ThemedText>
-            </TouchableOpacity>
-          )}
-          {item.due_date && (
-            <TouchableOpacity onPress={(event) => showDatePickerAtPosition(event, item.id)}>
-              <ThemedText style={[styles.metaText, 
-                new Date(item.due_date) < new Date() ? styles.overdue : null
-              ]}>
-                {new Date(item.due_date).toLocaleString('en-US', { weekday: 'short' }) + ', ' + new Date(item.due_date).toLocaleString('en-US', { month: 'numeric', day: 'numeric' })}
-              </ThemedText>
-            </TouchableOpacity>
-          )}
+                }}
+                style={styles.todoTextWrapper}
+              >
+                <ThemedText style={[
+                  styles.todoTextContent,
+                  item.completed && styles.completedText
+                ]}>
+                  {item.text}
+                </ThemedText>
+              </TouchableOpacity>
+            )}
+            {item.due_date && (
+              <TouchableOpacity onPress={(event) => showDatePickerAtPosition(event, item.id)}>
+                <ThemedText style={[styles.metaText, 
+                  new Date(item.due_date) < new Date() ? styles.overdue : null
+                ]}>
+                  {new Date(item.due_date).toLocaleString('en-US', { weekday: 'short' }) + ', ' + new Date(item.due_date).toLocaleString('en-US', { month: 'numeric', day: 'numeric' })}
+                </ThemedText>
+              </TouchableOpacity>
+            )}
+          </ThemedView>
+          <TouchableOpacity 
+            style={styles.calendarButton}
+            onPress={(event) => showDatePickerAtPosition(event, item.id)}
+          >
+            <ThemedText style={styles.calendarIcon}>📅</ThemedText>
+          </TouchableOpacity>
         </ThemedView>
-        <TouchableOpacity 
-          style={styles.calendarButton}
-          onPress={(event) => showDatePickerAtPosition(event, item.id)}
-        >
-          <ThemedText style={styles.calendarIcon}>📅</ThemedText>
-        </TouchableOpacity>
-      </ThemedView>
-    </Swipeable>
-  );
+      </Swipeable>
+    );
+  };
 
   const renderDatePicker = () => {
     if (Platform.OS === 'web') {
@@ -573,9 +595,9 @@ const styles = StyleSheet.create({
   },
   todoItem: {
     backgroundColor: '#f8f8f8',
-    padding: 8,
-    marginBottom: 2,
-    borderRadius: 16,
+    paddingHorizontal: 8,
+    paddingVertical: 0,
+    marginBottom: 0,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.2,
@@ -583,8 +605,9 @@ const styles = StyleSheet.create({
     elevation: 2,
     flexDirection: 'row',
     alignItems: 'center',
+    borderRadius: 0,
     ...(Platform.OS === 'web' ? {
-      maxWidth: 390, // Match container width
+      maxWidth: 390,
       alignSelf: 'center',
       width: '100%',
     } : {}),
@@ -612,7 +635,7 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   listContent: {
-    gap: 10,
+    gap: 0,
   },
   checkbox: {
     width: 24,
@@ -720,5 +743,17 @@ const styles = StyleSheet.create({
     minHeight: 20,
     fontSize: 16,
     flexWrap: 'wrap',
+  },
+  firstInGroup: {
+    borderTopLeftRadius: 6,
+    borderTopRightRadius: 6,
+  },
+  lastInGroup: {
+    marginBottom: 10, // Adds space after the last item in a date group
+    borderBottomLeftRadius: 6,
+    borderBottomRightRadius: 6,
+  },
+  middleItem: {
+    // Add any additional styles for the middle item if needed
   },
 });
