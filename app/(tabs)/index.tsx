@@ -38,6 +38,8 @@ export default function HomeScreen() {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState('');
+  const flatListRef = useRef<FlatList>(null);
+  const [itemHeight, setItemHeight] = useState<number>(44); // Default fallback height
 
   useEffect(() => {
     fetchTodos();
@@ -48,15 +50,29 @@ export default function HomeScreen() {
       const { data, error } = await supabase
         .from('todos')
         .select('*')
-        .order('completed', { ascending: true })
-        .order('due_date', { ascending: true, nullsLast: true })
+        .order('completed', { ascending: false })
+        .order('due_date', { ascending: false, nullsLast: true })
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setTodos(data || []);
+      
+      // Standardize dates in fetched todos
+      const standardizedTodos = data?.map(todo => ({
+        ...todo,
+        due_date: todo.due_date ? standardizeDate(new Date(todo.due_date)) : null,
+        created_at: standardizeDate(new Date(todo.created_at)),
+        completed_at: todo.completed_at ? standardizeDate(new Date(todo.completed_at)) : null
+      })) || [];
+
+      setTodos(standardizedTodos);
     } catch (error) {
       console.error('Error fetching todos:', error);
     }
+  };
+
+  // Helper function to standardize date format
+  const standardizeDate = (date: Date) => {
+    return date.toISOString(); // This will always use .000Z format
   };
 
   const handleAddTodo = async () => {
@@ -75,8 +91,8 @@ export default function HomeScreen() {
         text: inputText,
         completed: false,
         completed_at: null,
-        due_date: autoSetDueDate ? today.toISOString() : null,
-        created_at: new Date().toISOString()
+        due_date: autoSetDueDate ? standardizeDate(today) : null,
+        created_at: standardizeDate(new Date())
       };
       
       try {
@@ -86,7 +102,24 @@ export default function HomeScreen() {
 
         if (error) throw error;
         
-        setTodos(currentTodos => sortTodos([...currentTodos, newTodo]));
+        setTodos(currentTodos => {
+          console.log('Before sort - new todo:', newTodo);
+          console.log('Before sort - current todos:', currentTodos.map(t => ({ text: t.text, created_at: t.created_at, due_date: t.due_date })));
+          
+          const updatedTodos = sortTodos([...currentTodos, newTodo]);
+          
+          console.log('After sort - todos:', updatedTodos.map(t => ({ text: t.text, created_at: t.created_at, due_date: t.due_date })));
+          
+          setTimeout(() => {
+            const indexToScrollTo = Math.max(0, updatedTodos.length - 1);
+            flatListRef.current?.scrollToIndex({ 
+              index: indexToScrollTo,
+              animated: true,
+              viewPosition: 1 // This will align the item at the bottom of the visible area
+            });
+          }, 100);
+          return updatedTodos;
+        });
         setInputText('');
         inputRef.current?.focus();
       } catch (error) {
@@ -118,20 +151,22 @@ export default function HomeScreen() {
   // Helper function for sorting todos
   const sortTodos = (todos: TodoItem[]) => {
     return todos.sort((a, b) => {
-      // First, sort by completion status
+      // First, sort by completion status (completed at top)
       if (a.completed !== b.completed) {
-        return a.completed ? 1 : -1;
+        return a.completed ? -1 : 1;
       }
       
-      // Then, sort by due date (nulls last)
+      // Then, sort by due date (nulls first, later dates first)
       if (a.due_date !== b.due_date) {
-        if (!a.due_date) return 1;
-        if (!b.due_date) return -1;
-        return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
+        if (!a.due_date) return -1;
+        if (!b.due_date) return 1;
+        return new Date(b.due_date).getTime() - new Date(a.due_date).getTime();
       }
       
       // Finally, sort by creation date (newest first)
-      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      const aTime = new Date(a.created_at).getTime();
+      const bTime = new Date(b.created_at).getTime();
+      return bTime - aTime;  // Newest first
     });
   };
 
@@ -182,7 +217,7 @@ export default function HomeScreen() {
 
   const handleUpdateDueDate = async (id: string, date: Date | null) => {
     try {
-      const due_date = date ? date.toISOString() : null;
+      const due_date = date ? standardizeDate(date) : null;
       
       const { error } = await supabase
         .from('todos')
@@ -205,7 +240,6 @@ export default function HomeScreen() {
     setShowDatePicker(false);
     
     if (selectedDate && selectedTodoId) {
-      // Set time to noon
       selectedDate.setHours(12, 0, 0, 0);
       handleUpdateDueDate(selectedTodoId, selectedDate);
     }
@@ -290,12 +324,20 @@ export default function HomeScreen() {
         }
         rightThreshold={-100}
       >
-        <ThemedView style={[
-          styles.todoItem,
-          isFirstInGroup && styles.firstInGroup,
-          isLastInGroup && styles.lastInGroup,
-          !isFirstInGroup && !isLastInGroup && styles.middleItem
-        ]}>
+        <ThemedView 
+          onLayout={(event) => {
+            const { height } = event.nativeEvent.layout;
+            if (height > 0 && height !== itemHeight) {
+              setItemHeight(height);
+            }
+          }}
+          style={[
+            styles.todoItem,
+            isFirstInGroup && styles.firstInGroup,
+            isLastInGroup && styles.lastInGroup,
+            !isFirstInGroup && !isLastInGroup && styles.middleItem
+          ]}
+        >
           <TouchableOpacity 
             style={styles.checkbox}
             onPress={() => toggleTodoComplete(item.id, item.completed)}
@@ -462,6 +504,12 @@ export default function HomeScreen() {
     setRefreshing(false);
   };
 
+  const getItemLayout = (_: any, index: number) => ({
+    length: itemHeight,
+    offset: itemHeight * index,
+    index,
+  });
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <LinearGradient
@@ -475,6 +523,29 @@ export default function HomeScreen() {
       >
         <ThemedText type="title">Todo List</ThemedText>
         
+        <FlatList
+          data={todos}
+          keyExtractor={(item) => item.id}
+          renderItem={renderTodoItem}
+          style={styles.list}
+          contentContainerStyle={[
+            styles.listContent,
+            { flexGrow: 1 }
+          ]}
+          getItemLayout={getItemLayout}
+          initialScrollIndex={todos.length - 1}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor="#ffffff"
+              colors={['#ffffff']}
+              progressBackgroundColor="#3B82F6"
+            />
+          }
+          ref={flatListRef}
+        />
+
         <ThemedView style={styles.inputContainer}>
           <TextInput
             ref={inputRef}
@@ -500,23 +571,6 @@ export default function HomeScreen() {
             <ThemedText style={styles.addButtonText}>Add</ThemedText>
           </TouchableOpacity>
         </ThemedView>
-
-        <FlatList
-          data={todos}
-          keyExtractor={(item) => item.id}
-          renderItem={renderTodoItem}
-          style={styles.list}
-          contentContainerStyle={styles.listContent}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor="#ffffff"
-              colors={['#ffffff']}
-              progressBackgroundColor="#3B82F6"
-            />
-          }
-        />
         
         {showDatePicker && (
           <>
@@ -543,13 +597,17 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 20,
-    gap: 20,
+    gap: 0,
     paddingTop: Platform.OS === 'ios' ? 60 : 40,
   },
   inputContainer: {
     flexDirection: 'row',
     gap: 10,
     backgroundColor: 'transparent',
+    marginTop: 'auto',
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
   },
   input: {
     flex: 1,
@@ -636,6 +694,8 @@ const styles = StyleSheet.create({
   },
   listContent: {
     gap: 0,
+    flexGrow: 1,
+    justifyContent: 'flex-end',
   },
   checkbox: {
     width: 24,
