@@ -55,9 +55,9 @@ export default function HomeScreen() {
         .from('todos')
         .select('*')
         .or(`completed_at.gt.${oneDayAgo.toISOString()},completed_at.is.null`)
-        .order('completed', { ascending: false })
-        .order('due_date', { ascending: false, nullsLast: true })
-        .order('created_at', { ascending: false });
+        .order('completed', { ascending: true })
+        .order('due_date', { ascending: true, nullsLast: true })
+        .order('created_at', { ascending: true });
 
       if (error) throw error;
       
@@ -156,22 +156,22 @@ export default function HomeScreen() {
   // Helper function for sorting todos
   const sortTodos = (todos: TodoItem[]) => {
     return todos.sort((a, b) => {
-      // First, sort by completion status (completed at top)
+      // First, sort by completion status (completed at bottom)
       if (a.completed !== b.completed) {
-        return a.completed ? -1 : 1;
+        return a.completed ? 1 : -1;
       }
       
       // Then, sort by due date (nulls first, later dates first)
       if (a.due_date !== b.due_date) {
-        if (!a.due_date) return -1;
-        if (!b.due_date) return 1;
-        return new Date(b.due_date).getTime() - new Date(a.due_date).getTime();
+        if (!a.due_date) return 1;
+        if (!b.due_date) return -1;
+        return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
       }
       
       // Finally, sort by creation date (newest first)
       const aTime = new Date(a.created_at).getTime();
       const bTime = new Date(b.created_at).getTime();
-      return bTime - aTime;  // Newest first
+      return aTime - bTime;  // Newest first
     });
   };
 
@@ -538,7 +538,6 @@ export default function HomeScreen() {
             { flexGrow: 1 }
           ]}
           getItemLayout={getItemLayout}
-          initialScrollIndex={todos.length - 1}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -603,14 +602,15 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 20,
     gap: 0,
-    paddingTop: Platform.OS === 'ios' ? 60 : 40,
+    paddingTop: Platform.OS === 'ios' ? 60 : 20,
   },
   inputContainer: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 0,
     backgroundColor: 'transparent',
     marginTop: 'auto',
     paddingTop: 10,
+    paddingBottom: Platform.OS === 'ios' ? 10 : 0,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.1)',
   },
