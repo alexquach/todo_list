@@ -1,4 +1,4 @@
-import { StyleSheet, TextInput, TouchableOpacity, FlatList, Animated, Platform, RefreshControl } from 'react-native';
+import { StyleSheet, TextInput, TouchableOpacity, FlatList, Animated, Platform, RefreshControl, KeyboardAvoidingView } from 'react-native';
 import { useState, useEffect, useRef } from 'react';
 import { Swipeable, GestureHandlerRootView } from 'react-native-gesture-handler';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -517,82 +517,88 @@ export default function HomeScreen() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <LinearGradient
-        colors={['#3B82F6', '#9333EA']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
-        style={[
-          styles.container,
-          Platform.OS !== 'web' && { paddingBottom: tabBarHeight }
-        ]}
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={{ flex: 1 }}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? -tabBarHeight : 0}
       >
-        <ThemedText type="title">Todo List</ThemedText>
-        
-        <FlatList
-          data={todos}
-          keyExtractor={(item) => item.id}
-          renderItem={renderTodoItem}
-          style={styles.list}
-          contentContainerStyle={[
-            styles.listContent,
-            { flexGrow: 1 }
+        <LinearGradient
+          colors={['#3B82F6', '#9333EA']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={[
+            styles.container,
+            Platform.OS !== 'web' && { paddingBottom: tabBarHeight }
           ]}
-          getItemLayout={getItemLayout}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor="#ffffff"
-              colors={['#ffffff']}
-              progressBackgroundColor="#3B82F6"
-            />
-          }
-          ref={flatListRef}
-        />
-
-        <ThemedView style={styles.inputContainer}>
-          <TextInput
-            ref={inputRef}
-            style={styles.input}
-            value={inputText}
-            onChangeText={setInputText}
-            placeholder="Add a new todo..."
-            placeholderTextColor="#666"
-            onSubmitEditing={handleAddTodo}
-            returnKeyType="done"
+        >
+          <ThemedText type="title">Todo List</ThemedText>
+          
+          <FlatList
+            data={todos}
+            keyExtractor={(item) => item.id}
+            renderItem={renderTodoItem}
+            style={styles.list}
+            contentContainerStyle={[
+              styles.listContent,
+              { flexGrow: 1 }
+            ]}
+            getItemLayout={getItemLayout}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                tintColor="#ffffff"
+                colors={['#ffffff']}
+                progressBackgroundColor="#3B82F6"
+              />
+            }
+            ref={flatListRef}
           />
-          <TouchableOpacity 
-            style={[styles.autoDateToggle, autoSetDueDate && styles.autoDateToggleActive]} 
-            onPress={() => setAutoSetDueDate(!autoSetDueDate)}
-          >
-            <ThemedText style={styles.autoDateToggleText}>📅</ThemedText>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.addButton} 
-            onPress={handleAddTodo}
-            activeOpacity={0.7}
-          >
-            <ThemedText style={styles.addButtonText}>Add</ThemedText>
-          </TouchableOpacity>
-        </ThemedView>
-        
-        {showDatePicker && (
-          <>
-            <TouchableOpacity 
-              style={styles.datePickerBackdrop} 
-              onPress={() => {
-                setShowDatePicker(false);
-                setDatePickerPosition(null);
-              }}
+
+          <ThemedView style={styles.inputContainer}>
+            <TextInput
+              ref={inputRef}
+              style={styles.input}
+              value={inputText}
+              onChangeText={setInputText}
+              placeholder="Add a new todo..."
+              placeholderTextColor="#666"
+              onSubmitEditing={handleAddTodo}
+              returnKeyType="done"
             />
-            {Platform.OS === 'web' ? (
-              renderDatePicker()
-            ) : (
-              renderDatePicker()
-            )}
-          </>
-        )}
-      </LinearGradient>
+            <TouchableOpacity 
+              style={[styles.autoDateToggle, autoSetDueDate && styles.autoDateToggleActive]} 
+              onPress={() => setAutoSetDueDate(!autoSetDueDate)}
+            >
+              <ThemedText style={styles.autoDateToggleText}>📅</ThemedText>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.addButton} 
+              onPress={handleAddTodo}
+              activeOpacity={0.7}
+            >
+              <ThemedText style={styles.addButtonText}>Add</ThemedText>
+            </TouchableOpacity>
+          </ThemedView>
+          
+          {showDatePicker && (
+            <>
+              <TouchableOpacity 
+                style={styles.datePickerBackdrop} 
+                onPress={() => {
+                  setShowDatePicker(false);
+                  setDatePickerPosition(null);
+                }}
+              />
+              {Platform.OS === 'web' ? (
+                renderDatePicker()
+              ) : (
+                renderDatePicker()
+              )}
+            </>
+          )}
+        </LinearGradient>
+      </KeyboardAvoidingView>
     </GestureHandlerRootView>
   );
 }
