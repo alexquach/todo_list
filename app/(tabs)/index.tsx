@@ -108,12 +108,7 @@ export default function HomeScreen() {
         if (error) throw error;
         
         setTodos(currentTodos => {
-          console.log('Before sort - new todo:', newTodo);
-          console.log('Before sort - current todos:', currentTodos.map(t => ({ text: t.text, created_at: t.created_at, due_date: t.due_date })));
-          
           const updatedTodos = sortTodos([...currentTodos, newTodo]);
-          
-          console.log('After sort - todos:', updatedTodos.map(t => ({ text: t.text, created_at: t.created_at, due_date: t.due_date })));
           
           setTimeout(() => {
             const indexToScrollTo = Math.max(0, updatedTodos.length - 1);
