@@ -1,4 +1,4 @@
-import { StyleSheet, TextInput, TouchableOpacity, FlatList, Animated, Platform, RefreshControl, KeyboardAvoidingView } from 'react-native';
+import { StyleSheet, TextInput, TouchableOpacity, FlatList, Animated, Platform, RefreshControl, KeyboardAvoidingView, Keyboard } from 'react-native';
 import { useState, useEffect, useRef } from 'react';
 import { Swipeable, GestureHandlerRootView } from 'react-native-gesture-handler';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -41,6 +41,9 @@ export default function HomeScreen() {
   const [editingText, setEditingText] = useState('');
   const flatListRef = useRef<FlatList>(null);
   const [itemHeight, setItemHeight] = useState<number>(44); // Default fallback height
+  const keyboardDismissOffset = 0; // Threshold for keyboard dismissal
+  const [lastScrollY, setLastScrollY] = useState(0);
+  const [lastScrollTime, setLastScrollTime] = useState(Date.now());
 
   useEffect(() => {
     // Initial fetch when component mounts
@@ -530,6 +533,23 @@ export default function HomeScreen() {
     index,
   });
 
+  const handleScroll = (event: any) => {
+    const currentY = event.nativeEvent.contentOffset.y;
+    const currentTime = Date.now();
+    const timeDiff = currentTime - lastScrollTime;
+    
+    if (timeDiff > 0) {
+      const velocity = (currentY - lastScrollY) / timeDiff; // pixels per millisecond
+      
+      if (velocity < keyboardDismissOffset) {
+        Keyboard.dismiss();
+      }
+    }
+    
+    setLastScrollY(currentY);
+    setLastScrollTime(currentTime);
+  };
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <KeyboardAvoidingView 
@@ -568,6 +588,8 @@ export default function HomeScreen() {
               />
             }
             ref={flatListRef}
+            onScroll={handleScroll}
+            scrollEventThrottle={16}
           />
 
           <ThemedView style={styles.inputContainer}>
