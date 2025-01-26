@@ -618,10 +618,13 @@ export default function HomeScreen() {
               returnKeyType="done"
             />
             <TouchableOpacity 
-              style={[styles.autoDateToggle, autoSetDueDate && styles.autoDateToggleActive]} 
+              style={[
+                styles.autoDateToggle, 
+                autoSetDueDate && styles.autoDateToggleActive
+              ]} 
               onPress={() => setAutoSetDueDate(!autoSetDueDate)}
             >
-              <CalendarIcon />
+              <CalendarIcon date={new Date()} />
             </TouchableOpacity>
             <TouchableOpacity 
               style={styles.addButton} 
@@ -837,10 +840,15 @@ const styles = StyleSheet.create({
   autoDateToggle: {
     padding: 8,
     marginHorizontal: 8,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 48,
+    height: 48,
   },
   autoDateToggleActive: {
-    backgroundColor: '#007AFF',
-    borderColor: '#007AFF',
+    backgroundColor: 'rgba(0, 122, 255, 1)',
   },
   datePickerBackdrop: {
     position: 'absolute',
