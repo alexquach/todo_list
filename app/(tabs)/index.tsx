@@ -4,6 +4,7 @@ import { Swipeable, GestureHandlerRootView } from 'react-native-gesture-handler'
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as Haptics from 'expo-haptics';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
+import { AppState } from 'react-native';
 
 import ParallaxScrollView from '@/components/ParallaxScrollView';
 import { ThemedText } from '@/components/ThemedText';
@@ -42,8 +43,27 @@ export default function HomeScreen() {
   const [itemHeight, setItemHeight] = useState<number>(44); // Default fallback height
 
   useEffect(() => {
+    // Initial fetch when component mounts
     fetchTodos();
-  }, []);
+
+    // Set up auto-refresh interval (every 30 seconds)
+    const refreshInterval = setInterval(() => {
+      fetchTodos();
+    }, 30000); // 30 seconds
+
+    // Set up app state listener for when app comes back to foreground
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      if (nextAppState === 'active') {
+        fetchTodos();
+      }
+    });
+
+    // Cleanup function
+    return () => {
+      clearInterval(refreshInterval);
+      subscription.remove();
+    };
+  }, []); // Empty dependency array means this runs once on mount
 
   const fetchTodos = async () => {
     try {
