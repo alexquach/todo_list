@@ -26,6 +26,20 @@ interface DatePickerPosition {
   y: number;
 }
 
+const CalendarIcon = ({ date }: { date?: Date | null }) => {
+  const isOverdue = date && new Date(date) < new Date();
+  const color = isOverdue ? '#FF3B30' : '#007AFF';
+
+  return (
+    <ThemedView style={[styles.calendarIconContainer, { borderColor: color }]}>
+      <ThemedView style={[styles.calendarHeader, { backgroundColor: color }]} />
+      <ThemedText style={[styles.calendarDay, { color }]}>
+        {date ? date.getDate() : ''}
+      </ThemedText>
+    </ThemedView>
+  );
+};
+
 export default function HomeScreen() {
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [inputText, setInputText] = useState('');
@@ -430,7 +444,7 @@ export default function HomeScreen() {
             style={styles.calendarButton}
             onPress={(event) => showDatePickerAtPosition(event, item.id)}
           >
-            <ThemedText style={styles.calendarIcon}>📅</ThemedText>
+            <CalendarIcon date={item.due_date ? new Date(item.due_date) : undefined} />
           </TouchableOpacity>
         </ThemedView>
       </Swipeable>
@@ -607,7 +621,7 @@ export default function HomeScreen() {
               style={[styles.autoDateToggle, autoSetDueDate && styles.autoDateToggleActive]} 
               onPress={() => setAutoSetDueDate(!autoSetDueDate)}
             >
-              <ThemedText style={styles.autoDateToggleText}>📅</ThemedText>
+              <CalendarIcon />
             </TouchableOpacity>
             <TouchableOpacity 
               style={styles.addButton} 
@@ -789,8 +803,25 @@ const styles = StyleSheet.create({
     padding: 8,
     marginLeft: 8,
   },
-  calendarIcon: {
-    fontSize: 20,
+  calendarIconContainer: {
+    width: 24,
+    height: 24,
+    borderWidth: 1,
+    borderRadius: 4,
+    backgroundColor: '#fff',
+    overflow: 'hidden',
+  },
+  calendarHeader: {
+    height: 6,
+    width: '100%',
+  },
+  calendarDay: {
+    fontSize: 12,
+    textAlign: 'center',
+    flex: 1,
+    textAlignVertical: 'center',
+    paddingTop: 0,
+    marginTop: -4,
   },
   webDatePickerContainer: {
     backgroundColor: '#fff',
@@ -804,22 +835,12 @@ const styles = StyleSheet.create({
     zIndex: 1000,
   },
   autoDateToggle: {
-    padding: 12,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#ccc',
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    padding: 8,
+    marginHorizontal: 8,
   },
   autoDateToggleActive: {
     backgroundColor: '#007AFF',
     borderColor: '#007AFF',
-  },
-  autoDateToggleText: {
-    color: '#007AFF',
-    fontSize: 16,
-    fontWeight: 'bold',
   },
   datePickerBackdrop: {
     position: 'absolute',
