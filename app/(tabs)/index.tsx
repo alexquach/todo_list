@@ -356,6 +356,7 @@ export default function HomeScreen() {
     // Calculate number of week boundaries between two dates
     // where a week boundary is defined as the midnight between Sunday and Monday
     const getWeekBoundaryCount = (): number => {
+      if (item.completed) return 0;
       if (!item.due_date || !nextItem?.due_date) return 0;
       
       const date1 = new Date(item.due_date);
