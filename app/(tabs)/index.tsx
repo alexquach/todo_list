@@ -339,7 +339,6 @@ export default function HomeScreen() {
   };
 
   const renderTodoItem = ({ item, index }: { item: TodoItem, index: number }) => {
-    // Check if next/previous items have different completion status or due date
     const nextItem = todos[index + 1];
     const prevItem = todos[index - 1];
     
@@ -354,100 +353,132 @@ export default function HomeScreen() {
       (currentDate !== prevDate);
     const isLastInGroup = isLastCompleted || isLastInDateGroup;
 
-    return (
-      <Swipeable
-        renderRightActions={(progress, dragX) => 
-          renderRightActions(dragX, item.id)
+    // Calculate number of week boundaries between two dates
+    // where a week boundary is defined as the midnight between Sunday and Monday
+    const getWeekBoundaryCount = (): number => {
+      if (!item.due_date || !nextItem?.due_date) return 0;
+      
+      const date1 = new Date(item.due_date);
+      const date2 = new Date(nextItem.due_date);
+
+      if (date1.getTime() === date2.getTime()) return 0;
+      
+      // Ensure we're working with the earlier and later date
+      const [earlierDate, laterDate] = date1 < date2 ? [date1, date2] : [date2, date1];
+      
+      let count = 0;
+      const current = new Date(earlierDate);
+      current.setDate(current.getDate() + 1); // Start from the next day
+
+      while (current.getTime() / (1000 * 60 * 60 * 24) <= laterDate.getTime() / (1000 * 60 * 60 * 24)) {
+        if (current.getDay() === 1) { // Monday
+          count++;
         }
-        rightThreshold={-100}
-      >
-        <ThemedView 
-          onLayout={(event) => {
-            const { height } = event.nativeEvent.layout;
-            if (height > 0 && height !== itemHeight) {
-              setItemHeight(height);
-            }
-          }}
-          style={[
-            styles.todoItem,
-            isFirstInGroup && styles.firstInGroup,
-            isLastInGroup && styles.lastInGroup,
-            !isFirstInGroup && !isLastInGroup && styles.middleItem
-          ]}
+        current.setDate(current.getDate() + 1);
+      }
+
+      return count;
+    };
+
+    return (
+      <>
+        <Swipeable
+          renderRightActions={(progress, dragX) => 
+            renderRightActions(dragX, item.id)
+          }
+          rightThreshold={-100}
         >
-          <TouchableOpacity 
-            style={styles.checkbox}
-            onPress={() => toggleTodoComplete(item.id, item.completed)}
+          <ThemedView 
+            onLayout={(event) => {
+              const { height } = event.nativeEvent.layout;
+              if (height > 0 && height !== itemHeight) {
+                setItemHeight(height);
+              }
+            }}
+            style={[
+              styles.todoItem,
+              isFirstInGroup && styles.firstInGroup,
+              isLastInGroup && styles.lastInGroup,
+              !isFirstInGroup && !isLastInGroup && styles.middleItem
+            ]}
           >
-            {item.completed && <ThemedText style={styles.checkmark}>✓</ThemedText>}
-          </TouchableOpacity>
-          <ThemedView style={styles.todoTextContainer}>
-            {editingTodoId === item.id ? (
-              <TextInput
-                value={editingText}
-                onChangeText={setEditingText}
-                style={[styles.todoTextContent, styles.editInput]}
-                autoFocus
-                onBlur={() => {
-                  if (editingText.trim() !== '') {
-                    handleUpdateTodoText(item.id, editingText);
-                  }
-                  setEditingTodoId(null);
-                }}
-                onSubmitEditing={() => {
-                  if (editingText.trim() !== '') {
-                    handleUpdateTodoText(item.id, editingText);
-                  }
-                  setEditingTodoId(null);
-                }}
-              />
-            ) : (
-              <TouchableOpacity 
-                onPress={() => {
-                  if (Platform.OS === 'web') {
-                    let lastClick = (item as any).lastClick;
-                    const currentTime = new Date().getTime();
-                    if (lastClick && currentTime - lastClick < 300) {
+            <TouchableOpacity 
+              style={styles.checkbox}
+              onPress={() => toggleTodoComplete(item.id, item.completed)}
+            >
+              {item.completed && <ThemedText style={styles.checkmark}>✓</ThemedText>}
+            </TouchableOpacity>
+            <ThemedView style={styles.todoTextContainer}>
+              {editingTodoId === item.id ? (
+                <TextInput
+                  value={editingText}
+                  onChangeText={setEditingText}
+                  style={[styles.todoTextContent, styles.editInput]}
+                  autoFocus
+                  onBlur={() => {
+                    if (editingText.trim() !== '') {
+                      handleUpdateTodoText(item.id, editingText);
+                    }
+                    setEditingTodoId(null);
+                  }}
+                  onSubmitEditing={() => {
+                    if (editingText.trim() !== '') {
+                      handleUpdateTodoText(item.id, editingText);
+                    }
+                    setEditingTodoId(null);
+                  }}
+                />
+              ) : (
+                <TouchableOpacity 
+                  onPress={() => {
+                    if (Platform.OS === 'web') {
+                      let lastClick = (item as any).lastClick;
+                      const currentTime = new Date().getTime();
+                      if (lastClick && currentTime - lastClick < 300) {
+                        setEditingTodoId(item.id);
+                        setEditingText(item.text);
+                      }
+                      (item as any).lastClick = currentTime;
+                    }
+                  }}
+                  onLongPress={() => {
+                    if (Platform.OS !== 'web') {
                       setEditingTodoId(item.id);
                       setEditingText(item.text);
                     }
-                    (item as any).lastClick = currentTime;
-                  }
-                }}
-                onLongPress={() => {
-                  if (Platform.OS !== 'web') {
-                    setEditingTodoId(item.id);
-                    setEditingText(item.text);
-                  }
-                }}
-                style={styles.todoTextWrapper}
-              >
-                <ThemedText style={[
-                  styles.todoTextContent,
-                  item.completed && styles.completedText
-                ]}>
-                  {item.text}
-                </ThemedText>
-              </TouchableOpacity>
-            )}
-            {item.due_date && (
-              <TouchableOpacity onPress={(event) => showDatePickerAtPosition(event, item.id)}>
-                <ThemedText style={[styles.metaText, 
-                  new Date(item.due_date) < new Date() ? styles.overdue : null
-                ]}>
-                  {new Date(item.due_date).toLocaleString('en-US', { weekday: 'short' }) + ', ' + new Date(item.due_date).toLocaleString('en-US', { month: 'numeric', day: 'numeric' })}
-                </ThemedText>
-              </TouchableOpacity>
-            )}
+                  }}
+                  style={styles.todoTextWrapper}
+                >
+                  <ThemedText style={[
+                    styles.todoTextContent,
+                    item.completed && styles.completedText
+                  ]}>
+                    {item.text}
+                  </ThemedText>
+                </TouchableOpacity>
+              )}
+              {item.due_date && (
+                <TouchableOpacity onPress={(event) => showDatePickerAtPosition(event, item.id)}>
+                  <ThemedText style={[styles.metaText, 
+                    new Date(item.due_date) < new Date() ? styles.overdue : null
+                  ]}>
+                    {new Date(item.due_date).toLocaleString('en-US', { weekday: 'short' }) + ', ' + new Date(item.due_date).toLocaleString('en-US', { month: 'numeric', day: 'numeric' })}
+                  </ThemedText>
+                </TouchableOpacity>
+              )}
+            </ThemedView>
+            <TouchableOpacity 
+              style={styles.calendarButton}
+              onPress={(event) => showDatePickerAtPosition(event, item.id)}
+            >
+              <CalendarIcon date={item.due_date ? new Date(item.due_date) : undefined} />
+            </TouchableOpacity>
           </ThemedView>
-          <TouchableOpacity 
-            style={styles.calendarButton}
-            onPress={(event) => showDatePickerAtPosition(event, item.id)}
-          >
-            <CalendarIcon date={item.due_date ? new Date(item.due_date) : undefined} />
-          </TouchableOpacity>
-        </ThemedView>
-      </Swipeable>
+        </Swipeable>
+        {Array.from({ length: getWeekBoundaryCount() }, (_, i) => (
+          <ThemedView key={`divider-${item.id}-${i}`} style={styles.weekDivider} />
+        ))}
+      </>
     );
   };
 
@@ -892,5 +923,12 @@ const styles = StyleSheet.create({
   },
   middleItem: {
     // Add any additional styles for the middle item if needed
+  },
+  weekDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.5)',
+    marginBottom: 10,
+    marginHorizontal: Platform.OS === 'web' ? 'auto' : 0,
+    width: Platform.OS === 'web' ? '390px' : '100%',
   },
 });
