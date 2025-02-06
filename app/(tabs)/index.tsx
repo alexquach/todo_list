@@ -27,8 +27,15 @@ interface DatePickerPosition {
 }
 
 const CalendarIcon = ({ date }: { date?: Date | null }) => {
+  const isToday = date && new Date(date).toDateString() === new Date().toDateString();
   const isOverdue = date && new Date(date) < new Date();
-  const color = isOverdue ? '#FF3B30' : '#007AFF';
+  let color = '#007AFF'; // default blue
+  
+  if (isToday) {
+    color = '#9333EA'; // purple for today
+  } else if (isOverdue) {
+    color = '#FF3B30'; // red for overdue
+  }
 
   return (
     <ThemedView style={[styles.calendarIconContainer, { borderColor: color }]}>
@@ -460,10 +467,13 @@ export default function HomeScreen() {
               )}
               {item.due_date && (
                 <TouchableOpacity onPress={(event) => showDatePickerAtPosition(event, item.id)}>
-                  <ThemedText style={[styles.metaText, 
-                    new Date(item.due_date) < new Date() ? styles.overdue : null
+                  <ThemedText style={[
+                    styles.metaText, 
+                    new Date(item.due_date) < new Date() ? styles.overdue : null,
+                    new Date(item.due_date).toDateString() === new Date().toDateString() ? styles.today : null
                   ]}>
-                    {new Date(item.due_date).toLocaleString('en-US', { weekday: 'short' }) + ', ' + new Date(item.due_date).toLocaleString('en-US', { month: 'numeric', day: 'numeric' })}
+                    {new Date(item.due_date).toLocaleString('en-US', { weekday: 'short' }) + ', ' + 
+                     new Date(item.due_date).toLocaleString('en-US', { month: 'numeric', day: 'numeric' })}
                   </ThemedText>
                 </TouchableOpacity>
               )}
@@ -659,7 +669,7 @@ export default function HomeScreen() {
               <CalendarIcon date={new Date()} />
             </TouchableOpacity>
             <TouchableOpacity 
-              style={styles.addButton} 
+              style={styles.addButton}  
               onPress={handleAddTodo}
               activeOpacity={0.7}
             >
@@ -833,6 +843,9 @@ const styles = StyleSheet.create({
   },
   overdue: {
     color: '#FF3B30',
+  },
+  today: {
+    color: '#9333EA', // purple for today's tasks
   },
   calendarButton: {
     padding: 8,
