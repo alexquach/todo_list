@@ -6,12 +6,12 @@ import * as Haptics from 'expo-haptics';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { AppState } from 'react-native';
 import { Audio } from 'expo-av';
-
-import ParallaxScrollView from '@/components/ParallaxScrollView';
+import { Session } from '@supabase/supabase-js';
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
 import { supabase } from '@/lib/supabase';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Auth } from '@/components/Auth';
 
 interface TodoItem {
   id: string;
@@ -66,32 +66,57 @@ export default function HomeScreen() {
   const keyboardDismissOffset = 0; // Threshold for keyboard dismissal
   const [lastScrollY, setLastScrollY] = useState(0);
   const [lastScrollTime, setLastScrollTime] = useState(Date.now());
+  const [session, setSession] = useState<Session | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     // Initial fetch when component mounts
-    fetchTodos();
+    supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
+      setSession(initialSession);
+      if (initialSession?.user?.id) {
+        fetchTodos(initialSession); // Pass the session directly
+      }
+      setLoading(false);
+    });
+
+    // Set up auth state change listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      setSession(newSession);
+      if (newSession?.user?.id) {
+        fetchTodos(newSession); // Pass the session directly
+      }
+    });
 
     // Set up auto-refresh interval (every 30 seconds)
     const refreshInterval = setInterval(() => {
-      fetchTodos();
-    }, 30000); // 30 seconds
+      if (session?.user?.id) {
+        fetchTodos(session); // Pass the current session
+      }
+    }, 30000);
 
-    // Set up app state listener for when app comes back to foreground
-    const subscription = AppState.addEventListener('change', nextAppState => {
-      if (nextAppState === 'active') {
-        fetchTodos();
+    // Set up app state listener
+    const appStateSubscription = AppState.addEventListener('change', nextAppState => {
+      if (nextAppState === 'active' && session?.user?.id) {
+        fetchTodos(session); // Pass the current session
       }
     });
 
     // Cleanup function
     return () => {
       clearInterval(refreshInterval);
-      subscription.remove();
+      appStateSubscription.remove();
+      subscription.unsubscribe();
     };
   }, []); // Empty dependency array means this runs once on mount
 
-  const fetchTodos = async () => {
+  const fetchTodos = async (currentSession = session) => {
     try {
+      // First check if we have a session
+      if (!currentSession?.user?.id) {
+        console.log('No user session, skipping fetch');
+        return;
+      }
+
       const oneDayAgo = new Date();
       oneDayAgo.setDate(oneDayAgo.getDate() - 1);
       oneDayAgo.setHours(0, 0, 0, 0);
@@ -100,12 +125,16 @@ export default function HomeScreen() {
         .from('todos')
         .select('*')
         .or(`completed_at.gt.${oneDayAgo.toISOString()},completed_at.is.null`)
+        .eq('user_id', currentSession.user.id)
         .order('completed', { ascending: true })
         .order('due_date', { ascending: true, nullsLast: true })
         .order('created_at', { ascending: true });
 
-      if (error) throw error;
-      
+      if (error) {
+        console.error('Supabase query error:', error);
+        throw error;
+      }
+
       // Standardize dates in fetched todos
       const standardizedTodos = data?.map(todo => ({
         ...todo,
@@ -136,9 +165,11 @@ export default function HomeScreen() {
       const today = new Date();
       today.setHours(12, 0, 0, 0);
 
-      const newTodo: TodoItem = {
-        id: Date.now().toString(),
+      // Create the todo object with a generated UUID
+      const newTodo = {
+        id: crypto.randomUUID(), // Generate a UUID for the id
         text: inputText,
+        user_id: session?.user?.id,
         completed: false,
         completed_at: null,
         due_date: autoSetDueDate ? standardizeDate(today) : null,
@@ -614,6 +645,18 @@ export default function HomeScreen() {
     setLastScrollTime(currentTime);
   };
 
+  if (loading) {
+    return (
+      <ThemedView style={styles.container}>
+        <ThemedText>Loading...</ThemedText>
+      </ThemedView>
+    );
+  }
+
+  if (!session) {
+    return <Auth />;
+  }
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <KeyboardAvoidingView 
@@ -701,6 +744,12 @@ export default function HomeScreen() {
               )}
             </>
           )}
+          <TouchableOpacity 
+            style={styles.signOutButton} 
+            onPress={() => supabase.auth.signOut()}
+          >
+            <ThemedText style={styles.signOutText}>Sign Out</ThemedText>
+          </TouchableOpacity>
         </LinearGradient>
       </KeyboardAvoidingView>
     </GestureHandlerRootView>
@@ -952,5 +1001,17 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     marginHorizontal: Platform.OS === 'web' ? 'auto' : 0,
     width: Platform.OS === 'web' ? '390px' : '100%',
+  },
+  signOutButton: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 60 : 20,
+    right: 20,
+    padding: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 8,
+  },
+  signOutText: {
+    color: '#fff',
+    fontSize: 14,
   },
 });

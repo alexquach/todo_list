@@ -1,11 +1,11 @@
 {
   "expo": {
     "name": "TodoListApp",
-    "slug": "TodoListApp",
+    "slug": "todolistapp",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/Logo_Rounded_with_margin.jpg",
-    "scheme": "myapp",
+    "scheme": "todolistapp",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
