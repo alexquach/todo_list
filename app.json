@@ -1,22 +1,24 @@
 {
   "expo": {
     "name": "TodoListApp",
-    "slug": "todolistapp",
+    "slug": "TodoListApp",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/Logo_Rounded_with_margin.jpg",
-    "scheme": "todolistapp",
+    "scheme": "com.alexquach.TodoListApp",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.alexquach.TodoListApp"
+      "bundleIdentifier": "com.alexquach.TodoListApp",
+      "scheme": "com.alexquach.TodoListApp"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/Logo_Rounded_with_margin.png",
         "backgroundColor": "#ffffff"
-      }
+      },
+      "scheme": "com.alexquach.TodoListApp"
     },
     "web": {
       "bundler": "metro",

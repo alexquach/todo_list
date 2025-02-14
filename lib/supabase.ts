@@ -2,7 +2,7 @@ import 'react-native-url-polyfill/auto';
 import { createClient } from '@supabase/supabase-js';
 import { makeRedirectUri } from 'expo-auth-session';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Platform } from 'react-native';
+import { Platform, Linking } from 'react-native';
 
 // Hardcoded values (remember to never commit sensitive keys to public repos!)
 const supabaseUrl = 'https://your-supabase-project-url.supabase.co';
@@ -45,23 +45,49 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 // Helper function to handle Google Sign In
 export const signInWithGoogle = async () => {
   try {
+    let redirectUrl;
     
-    // Use window.location.origin for web, makeRedirectUri for native
-    const redirectUrl = Platform.select({
-      web: window.location.origin,
-      default: makeRedirectUri()
-    });
+    if (Platform.OS === 'web') {
+      redirectUrl = window?.location?.origin || '';
+    } else {
+      redirectUrl = makeRedirectUri({
+        scheme: 'com.alexquach.TodoListApp',
+        path: 'auth/callback'
+      });
+    }
 
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: redirectUrl,
-      },
-    });
+    console.log('Platform:', Platform.OS);
+    console.log('Redirect URL:', redirectUrl);
 
-    if (error) throw error;
-    
-    return data;
+    if (Platform.OS === 'web') {
+      // Web flow
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: redirectUrl,
+        },
+      });
+      if (error) throw error;
+      return data;
+    } else {
+      // Mobile flow
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: redirectUrl,
+          skipBrowserRedirect: true, // Important for mobile flow
+        },
+      });
+      
+      if (error) throw error;
+      
+      // Open the URL in the device browser
+      if (data?.url) {
+        await Linking.openURL(data.url);
+      }
+      
+      return data;
+    }
 
   } catch (error) {
     console.error('Error in signInWithGoogle:', error);

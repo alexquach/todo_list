@@ -1,4 +1,4 @@
-import { StyleSheet, TextInput, TouchableOpacity, FlatList, Animated, Platform, RefreshControl, KeyboardAvoidingView, Keyboard } from 'react-native';
+import { StyleSheet, TextInput, TouchableOpacity, FlatList, Animated, Platform, RefreshControl, KeyboardAvoidingView, Keyboard, Linking } from 'react-native';
 import { useState, useEffect, useRef } from 'react';
 import { Swipeable, GestureHandlerRootView } from 'react-native-gesture-handler';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -80,7 +80,7 @@ export default function HomeScreen() {
     });
 
     // Set up auth state change listener
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, newSession) => {
+    const { data: { authSubscription } } = supabase.auth.onAuthStateChange((_event, newSession) => {
       setSession(newSession);
       if (newSession?.user?.id) {
         fetchTodos(newSession); // Pass the session directly
@@ -105,7 +105,9 @@ export default function HomeScreen() {
     return () => {
       clearInterval(refreshInterval);
       appStateSubscription.remove();
-      subscription.unsubscribe();
+      if (authSubscription) {
+        authSubscription.unsubscribe();
+      }
     };
   }, []); // Empty dependency array means this runs once on mount
 
@@ -167,7 +169,7 @@ export default function HomeScreen() {
 
       // Create the todo object with a generated UUID
       const newTodo = {
-        id: crypto.randomUUID(), // Generate a UUID for the id
+        id: Date.now().toString(),
         text: inputText,
         user_id: session?.user?.id,
         completed: false,
