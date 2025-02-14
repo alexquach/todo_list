@@ -16,7 +16,8 @@
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/Logo_Rounded_with_margin.png",
         "backgroundColor": "#ffffff"
-      }
+      },
+      "package": "com.alexquach.TodoListApp"
     },
     "web": {
       "bundler": "metro",
@@ -45,6 +46,7 @@
       "eas": {
         "projectId": "1351f1a7-2f2b-40a5-9ebf-76a2925c91b2"
       }
-    }
+    },
+    "jsEngine": "hermes"
   }
 }

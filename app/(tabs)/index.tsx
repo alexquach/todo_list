@@ -11,6 +11,7 @@ import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
 import { supabase } from '@/lib/supabase';
 import { LinearGradient } from 'expo-linear-gradient';
+import { setDynamicIsland } from '../../lib/dynamicIsland';
 
 interface TodoItem {
   id: string;
@@ -114,6 +115,7 @@ export default function HomeScreen() {
       })) || [];
 
       setTodos(standardizedTodos);
+      updateDynamicIsland();
     } catch (error) {
       console.error('Error fetching todos:', error);
     }
@@ -214,7 +216,6 @@ export default function HomeScreen() {
     });
   };
 
-
   const toggleTodoComplete = async (id: string, completed: boolean) => {
     try {
       if (Platform.OS !== 'web') {
@@ -247,7 +248,9 @@ export default function HomeScreen() {
             ? { ...todo, completed: !todo.completed, completed_at } 
             : todo
         );
-        return sortTodos(updatedTodos);
+        const sorted = sortTodos(updatedTodos);
+        updateDynamicIsland();
+        return sorted;
       });
     } catch (error) {
       if (Platform.OS !== 'web') {
@@ -606,6 +609,25 @@ export default function HomeScreen() {
     setLastScrollTime(currentTime);
   };
 
+  const getCompletedTodayCount = () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    return todos.filter(todo => {
+      if (!todo.completed_at) return false;
+      const completedDate = new Date(todo.completed_at);
+      return completedDate >= today;
+    }).length;
+  };
+
+  const updateDynamicIsland = () => {
+    const count = getCompletedTodayCount();
+    setDynamicIsland({
+      type: 'taskCount',
+      data: { count }
+    });
+  };
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <KeyboardAvoidingView 
@@ -622,7 +644,19 @@ export default function HomeScreen() {
             Platform.OS !== 'web' && { paddingBottom: tabBarHeight }
           ]}
         >
-          <ThemedText type="title">Todo List</ThemedText>
+          <ThemedView style={styles.headerContainer}>
+            <ThemedText type="title">Todo List</ThemedText>
+            {Platform.OS === 'ios' && (
+              <TouchableOpacity 
+                style={styles.dynamicIslandButton}
+                onPress={updateDynamicIsland}
+              >
+                <ThemedText style={styles.dynamicIslandButtonText}>
+                  {`Update Island (${getCompletedTodayCount()})`}
+                </ThemedText>
+              </TouchableOpacity>
+            )}
+          </ThemedView>
           
           <FlatList
             data={todos}
@@ -944,5 +978,22 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     marginHorizontal: Platform.OS === 'web' ? 'auto' : 0,
     width: Platform.OS === 'web' ? '390px' : '100%',
+  },
+  headerContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  dynamicIslandButton: {
+    backgroundColor: 'rgba(0, 255, 0, 0.9)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  dynamicIslandButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '500',
   },
 });
