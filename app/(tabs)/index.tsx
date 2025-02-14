@@ -5,6 +5,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import * as Haptics from 'expo-haptics';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { AppState } from 'react-native';
+import { Audio } from 'expo-av';
 
 import ParallaxScrollView from '@/components/ParallaxScrollView';
 import { ThemedText } from '@/components/ThemedText';
@@ -217,12 +218,19 @@ export default function HomeScreen() {
 
   const toggleTodoComplete = async (id: string, completed: boolean) => {
     try {
-      if (Platform.OS !== 'web') {
-        if (!completed) {
+      if (!completed) {
+        if (Platform.OS !== 'web') {
           await Haptics.notificationAsync(
             Haptics.NotificationFeedbackType.Success
           );
-        } else {
+        }
+        // Play sound when marking as completed
+        const { sound } = await Audio.Sound.createAsync(
+          require('../../assets/sounds/correct.mp3')
+        );
+        await sound.playAsync();
+      } else {
+        if (Platform.OS !== 'web') {
           await Haptics.impactAsync(
             Haptics.ImpactFeedbackStyle.Medium
           );
