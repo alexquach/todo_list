@@ -11,14 +11,23 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.alexquach.TodoListApp",
-      "scheme": "com.alexquach.TodoListApp"
+      "scheme": "com.alexquach.TodoListApp",
+      "infoPlist": {
+        "NSSpeechRecognitionUsageDescription": "Allow TodoListApp to convert your voice to text for adding tasks",
+        "NSMicrophoneUsageDescription": "Allow TodoListApp to access your microphone to record voice commands"
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/Logo_Rounded_with_margin.png",
         "backgroundColor": "#ffffff"
       },
-      "scheme": "com.alexquach.TodoListApp"
+      "scheme": "com.alexquach.TodoListApp",
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.RECORD_AUDIO"
+      ],
+      "package": "com.alexquach.TodoListApp"
     },
     "web": {
       "bundler": "metro",
@@ -34,6 +43,13 @@
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
+        }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Allow TodoListApp to access your microphone to record voice commands",
+          "speechRecognitionPermission": "Allow TodoListApp to convert your voice to text for adding tasks"
         }
       ]
     ],

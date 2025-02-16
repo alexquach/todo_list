@@ -12,6 +12,7 @@ import { ThemedView } from '@/components/ThemedView';
 import { supabase } from '@/lib/supabase';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Auth } from '@/components/Auth';
+import { ExpoSpeechRecognitionModule } from 'expo-speech-recognition';
 
 interface TodoItem {
   id: string;
@@ -68,6 +69,8 @@ export default function HomeScreen() {
   const [lastScrollTime, setLastScrollTime] = useState(Date.now());
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isListening, setIsListening] = useState(false);
+  const [finalTranscript, setFinalTranscript] = useState('');
 
   useEffect(() => {
     // Initial fetch when component mounts
@@ -647,6 +650,72 @@ export default function HomeScreen() {
     setLastScrollTime(currentTime);
   };
 
+  const startListening = async () => {
+    try {
+      const { status } = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      if (status !== 'granted') {
+        alert('Permission to access microphone was denied');
+        return;
+      }
+
+      setIsListening(true);
+      setFinalTranscript(''); // Reset transcript
+      
+      ExpoSpeechRecognitionModule.start({
+        lang: 'en-US',
+        interimResults: true,
+        onResult: (event) => {
+          if (event.results[0]?.transcript) {
+            const transcript = event.results[0].transcript;
+            setInputText(transcript);
+            
+            // If this is a final result, store it
+            if (event.results[0].isFinal) {
+              setFinalTranscript(transcript);
+              ExpoSpeechRecognitionModule.stop();
+            }
+          }
+        },
+        onError: (error) => {
+          console.error('Speech recognition error:', error);
+          setIsListening(false);
+          setFinalTranscript('');
+          ExpoSpeechRecognitionModule.stop(); // Ensure we stop on error
+        },
+        onEnd: () => {
+          setIsListening(false);
+          // Only trigger add todo if we have a final transcript
+          if (finalTranscript) {
+            handleAddTodo();
+            setFinalTranscript(''); // Reset after adding
+          }
+        }
+      });
+
+      // Safety timeout - force stop after 10 seconds
+      setTimeout(() => {
+        if (isListening) {
+          console.log('Forcing stop after timeout');
+          ExpoSpeechRecognitionModule.stop();
+          setIsListening(false);
+        }
+      }, 10000);
+
+    } catch (error) {
+      console.error('Error starting speech recognition:', error);
+      setIsListening(false);
+      setFinalTranscript('');
+      ExpoSpeechRecognitionModule.stop();
+    }
+  };
+
+  // Add a separate stop function for clarity
+  const stopListening = () => {
+    ExpoSpeechRecognitionModule.stop();
+    setIsListening(false);
+    // Don't reset finalTranscript here as we might need it in onEnd
+  };
+
   if (loading) {
     return (
       <ThemedView style={styles.container}>
@@ -712,6 +781,14 @@ export default function HomeScreen() {
               onSubmitEditing={handleAddTodo}
               returnKeyType="done"
             />
+            <TouchableOpacity 
+              style={[styles.micButton, isListening && styles.micButtonActive]}
+              onPress={isListening ? stopListening : startListening}
+            >
+              <ThemedText style={styles.micButtonText}>
+                {isListening ? '🔴' : '🎤'}
+              </ThemedText>
+            </TouchableOpacity>
             <TouchableOpacity 
               style={[
                 styles.autoDateToggle, 
@@ -1015,5 +1092,21 @@ const styles = StyleSheet.create({
   signOutText: {
     color: '#fff',
     fontSize: 14,
+  },
+  micButton: {
+    padding: 8,
+    marginHorizontal: 8,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 48,
+    height: 48,
+  },
+  micButtonActive: {
+    backgroundColor: 'rgba(255, 59, 48, 0.1)', // Light red background when active
+  },
+  micButtonText: {
+    fontSize: 24,
   },
 });
