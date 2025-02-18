@@ -238,44 +238,41 @@ export default function HomeScreen() {
   );
 
   useEffect(() => {
-    // Initial fetch when component mounts
-    supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
-      setSession(initialSession);
-      if (initialSession?.user?.id) {
-        fetchTodos(initialSession);
-      }
-      setLoading(false);
-    });
+    let isSubscribed = true;
 
-    // Set up auth state change listener
-    const { data: { authSubscription } } = supabase.auth.onAuthStateChange((_event, newSession) => {
+    const initializeApp = async () => {
+      try {
+        const { data: { session: initialSession } } = await supabase.auth.getSession();
+        
+        if (!isSubscribed) return;
+        
+        setSession(initialSession);
+        if (initialSession?.user?.id) {
+          await fetchTodos(initialSession);
+        }
+      } catch (error) {
+        console.error('Error initializing app:', error);
+      } finally {
+        if (isSubscribed) {
+          setLoading(false);
+        }
+      }
+    };
+
+    initializeApp();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+      if (!isSubscribed) return;
+      
       setSession(newSession);
       if (newSession?.user?.id) {
-        fetchTodos(newSession);
+        await fetchTodos(newSession);
       }
     });
 
-    // Set up auto-refresh interval (every 30 seconds)
-    const refreshInterval = setInterval(() => {
-      if (session?.user?.id) {
-        fetchTodos(session);
-      }
-    }, 30000);
-
-    // Set up app state listener
-    const appStateSubscription = AppState.addEventListener('change', nextAppState => {
-      if (nextAppState === 'active' && session?.user?.id) {
-        fetchTodos(session);
-      }
-    });
-
-    // Cleanup function
     return () => {
-      clearInterval(refreshInterval);
-      appStateSubscription.remove();
-      if (authSubscription) {
-        authSubscription.unsubscribe();
-      }
+      isSubscribed = false;
+      subscription?.unsubscribe();
     };
   }, [hideArchived, hideSnoozed]);
 
@@ -287,6 +284,7 @@ export default function HomeScreen() {
     try {
       if (!currentSession?.user?.id) {
         console.log('No user session, skipping fetch');
+        setTodos([]);
         return;
       }
 
@@ -300,12 +298,10 @@ export default function HomeScreen() {
         .or(`completed_at.gt.${oneDayAgo.toISOString()},completed_at.is.null`)
         .eq('user_id', currentSession.user.id);
 
-      // Filter archived unless hideArchived is false
       if (hideArchived) {
         query = query.or('archived.is.false,archived.is.null')
       }
 
-      // Filter snoozed items unless hideSnoozed is false
       if (hideSnoozed) {
         const now = new Date().toISOString();
         query = query.or(`snooze_time.is.null,snooze_time.lt.${now}`);
@@ -321,22 +317,27 @@ export default function HomeScreen() {
         throw error;
       }
 
-      const standardizedTodos = data?.map(todo => ({
+      const standardizedTodos = (data || []).map(todo => ({
         ...todo,
+        id: todo.id || String(Date.now()),
+        text: todo.text || '',
+        completed: Boolean(todo.completed),
         due_date: todo.due_date ? standardizeDate(new Date(todo.due_date)) : null,
-        created_at: standardizeDate(new Date(todo.created_at)),
-        completed_at: todo.completed_at ? standardizeDate(new Date(todo.completed_at)) : null
-      })) || [];
+        created_at: standardizeDate(new Date(todo.created_at || Date.now())),
+        completed_at: todo.completed_at ? standardizeDate(new Date(todo.completed_at)) : null,
+        archived: Boolean(todo.archived),
+        snooze_time: todo.snooze_time ? standardizeDate(new Date(todo.snooze_time)) : null
+      }));
 
       setTodos(standardizedTodos);
     } catch (error) {
       console.error('Error fetching todos:', error);
+      setTodos([]);
     }
   };
 
-  // Helper function to standardize date format
   const standardizeDate = (date: Date) => {
-    return date.toISOString(); // This will always use .000Z format
+    return date.toISOString();
   };
 
   const handleAddTodo = async () => {
@@ -350,7 +351,6 @@ export default function HomeScreen() {
       const today = new Date();
       today.setHours(12, 0, 0, 0);
 
-      // Create the todo object with active tag settings
       const newTodo = {
         id: Date.now().toString(),
         text: inputText,
@@ -411,28 +411,23 @@ export default function HomeScreen() {
     }
   };
 
-  // Helper function for sorting todos
   const sortTodos = (todos: TodoItem[]) => {
     return todos.sort((a, b) => {
-      // First, sort by completion status (completed at bottom)
       if (a.completed !== b.completed) {
         return a.completed ? 1 : -1;
       }
       
-      // Then, sort by due date (nulls first, later dates first)
       if (a.due_date !== b.due_date) {
         if (!a.due_date) return 1;
         if (!b.due_date) return -1;
         return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
       }
       
-      // Finally, sort by creation date (newest first)
       const aTime = new Date(a.created_at).getTime();
       const bTime = new Date(b.created_at).getTime();
-      return aTime - bTime;  // Newest first
+      return aTime - bTime;
     });
   };
-
 
   const toggleTodoComplete = async (id: string, completed: boolean) => {
     try {
@@ -442,7 +437,6 @@ export default function HomeScreen() {
             Haptics.NotificationFeedbackType.Success
           );
         }
-        // Play sound when marking as completed
         const { sound } = await Audio.Sound.createAsync(
           require('../../assets/sounds/correct.mp3')
         );
@@ -568,7 +562,6 @@ export default function HomeScreen() {
     }
   };
 
-
   const renderRightActions = (dragX: Animated.AnimatedInterpolation<number>, todo: TodoItem) => {
     const scale = dragX.interpolate({
       inputRange: [-100, 0],
@@ -613,7 +606,6 @@ export default function HomeScreen() {
     setDatePickerPosition({ x: pageX, y: pageY });
     setSelectedTodoId(todoId);
     
-    // Set the initial date based on the todo's due date or current date
     const todo = todos.find(t => t.id === todoId);
     const initialDate = todo?.due_date ? new Date(todo.due_date) : new Date(Date.now() - 86400000);
     setSelectedDate(initialDate);
@@ -643,7 +635,6 @@ export default function HomeScreen() {
   const handleTodoClick = async (todo: TodoItem) => {
     if (!tagMode) return;
 
-    // Call the action function for each selected tag option
     tagOptions.forEach(option => {
       if (option.isSelected()) {
         option.action(todo);
@@ -672,8 +663,6 @@ export default function HomeScreen() {
       (currentDate !== prevDate);
     const isLastInGroup = isLastCompleted || isLastInDateGroup;
 
-    // Calculate number of week boundaries between two dates
-    // where a week boundary is defined as the midnight between Sunday and Monday
     const getWeekBoundaryCount = (): number => {
       if (item.completed) return 0;
       if (!item.due_date || !nextItem?.due_date) return 0;
@@ -683,15 +672,14 @@ export default function HomeScreen() {
 
       if (date1.getTime() === date2.getTime()) return 0;
       
-      // Ensure we're working with the earlier and later date
       const [earlierDate, laterDate] = date1 < date2 ? [date1, date2] : [date2, date1];
       
       let count = 0;
       const current = new Date(earlierDate);
-      current.setDate(current.getDate() + 1); // Start from the next day
+      current.setDate(current.getDate() + 1);
 
       while (current.getTime() / (1000 * 60 * 60 * 24) <= laterDate.getTime() / (1000 * 60 * 60 * 24)) {
-        if (current.getDay() === 1) { // Monday
+        if (current.getDay() === 1) {
           count++;
         }
         current.setDate(current.getDate() + 1);
@@ -930,7 +918,7 @@ export default function HomeScreen() {
     const timeDiff = currentTime - lastScrollTime;
     
     if (timeDiff > 0) {
-      const velocity = (currentY - lastScrollY) / timeDiff; // pixels per millisecond
+      const velocity = (currentY - lastScrollY) / timeDiff;
       
       if (velocity < keyboardDismissOffset) {
         Keyboard.dismiss();
@@ -1280,7 +1268,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 6,
   },
   lastInGroup: {
-    marginBottom: 10, // Adds space after the last item in a date group
+    marginBottom: 10,
     borderBottomLeftRadius: 6,
     borderBottomRightRadius: 6,
   },
@@ -1330,8 +1318,8 @@ const styles = StyleSheet.create({
   },
   tagMenuContainer: {
     position: 'absolute',
-    bottom: 70, // Position above the input container
-    right: 100, // Position relative to the right side, adjust as needed
+    bottom: 70,
+    right: 100,
     backgroundColor: '#fff',
     borderRadius: 8,
     padding: 8,
@@ -1408,7 +1396,7 @@ const styles = StyleSheet.create({
   settingsButton: {
     position: 'absolute',
     top: Platform.OS === 'ios' ? 60 : 20,
-    right: 100, // Position to the left of sign out button
+    right: 100,
     padding: 8,
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     borderRadius: 8,
@@ -1427,7 +1415,7 @@ const styles = StyleSheet.create({
   },
   settingsMenuContainer: {
     position: 'absolute',
-    top: Platform.OS === 'ios' ? 110 : 70, // Position below the settings button
+    top: Platform.OS === 'ios' ? 110 : 70,
     right: 80,
     backgroundColor: '#fff',
     borderRadius: 8,
