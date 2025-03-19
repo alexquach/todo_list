@@ -1,4 +1,4 @@
-import { StyleSheet, TextInput, TouchableOpacity, FlatList, Animated, Platform, RefreshControl, KeyboardAvoidingView, Keyboard, View } from 'react-native';
+import { StyleSheet, TextInput, TouchableOpacity, FlatList, Animated, Platform, RefreshControl, KeyboardAvoidingView, Keyboard, Linking } from 'react-native';
 import { useState, useEffect, useRef } from 'react';
 import { Swipeable, GestureHandlerRootView } from 'react-native-gesture-handler';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -20,21 +20,11 @@ interface TodoItem {
   completed_at: string | null;
   due_date: string | null;
   created_at: string;
-  archived: boolean;
-  snooze_time: string | null;
 }
 
 interface DatePickerPosition {
   x: number;
   y: number;
-}
-
-interface TagOption {
-  id: string;
-  label: string;
-  icon: string;
-  action: (todo?: TodoItem) => void;
-  isSelected: () => boolean;
 }
 
 const CalendarIcon = ({ date }: { date?: Date | null }) => {
@@ -78,213 +68,54 @@ export default function HomeScreen() {
   const [lastScrollTime, setLastScrollTime] = useState(Date.now());
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  const [showTagMenu, setShowTagMenu] = useState(false);
-  const [tagMode, setTagMode] = useState(false);
-
-  const [hideArchived, setHideArchived] = useState(true);
-  const [hideSnoozed, setHideSnoozed] = useState(true);
-  
-  // const [selectedTodoForTag, setSelectedTodoForTag] = useState<TodoItem | null>(null);
-  const [autoArchive, setAutoArchive] = useState(false);
-  const [autoSnoozeDate, setAutoSnoozeDate] = useState(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000));
-  const [autoSnooze, setAutoSnooze] = useState(false);
-  
-  const [showSettings, setShowSettings] = useState(false);
-  const tagOptions: TagOption[] = [
-    {
-      id: 'due_today',
-      label: 'Due Today',
-      icon: <CalendarIcon date={new Date()} />,
-      action: (todo) => {
-        if (todo) {
-          const today = new Date();
-          today.setHours(12, 0, 0, 0);
-          handleUpdateDueDate(todo.id, today);
-        } else {
-          setAutoSetDueDate(!autoSetDueDate);
-        }
-      },
-      isSelected: () => autoSetDueDate
-    },
-    {
-      id: 'archive',
-      label: 'Archive',
-      icon: '📦',
-      action: (todo) => {
-        if (todo) {
-          toggleArchiveTodo(todo.id, todo.archived);
-        } else {
-          setAutoArchive(!autoArchive);
-        }
-      },
-      isSelected: () => autoArchive
-    },
-    {
-      id: 'snooze',
-      label: 'Snooze',
-      icon: '💤',
-      action: (todo) => {
-        if (todo) {
-          toggleSnoozeTimeTodo(todo.id, autoSnoozeDate);
-        } else {
-          setAutoSnooze(!autoSnooze);
-        }
-      },
-      isSelected: () => autoSnooze
-    }
-  ];
-
-  const TagMenu = () => {
-    return (
-      <>
-        <TouchableOpacity 
-          style={[
-            styles.tagButton,
-            tagMode && styles.tagButtonActive
-          ]}
-          onPress={() => {
-            setShowTagMenu(!showTagMenu);
-            setTagMode(!tagMode);
-          }}
-        >
-          <ThemedText style={styles.tagButtonIcon}>
-            {(autoSetDueDate || autoArchive || autoSnooze) ? '📌' : '🏷️'}
-          </ThemedText>
-        </TouchableOpacity>
-
-        {showTagMenu && (
-          <>
-            <TouchableOpacity 
-              style={styles.tagMenuBackdrop}
-              onPress={() => {
-                setShowTagMenu(false);
-              }}
-            />
-            <ThemedView style={styles.tagMenuContainer}>
-              {tagOptions.map((option) => (
-                <TouchableOpacity
-                  key={option.id}
-                  style={[
-                    styles.tagOption,
-                    option.isSelected() && styles.tagOptionSelected
-                  ]}
-                  onPress={() => {
-                    option.action(); // Call action without todo parameter to toggle state
-                    setShowTagMenu(false);
-                  }}
-                >
-                  <ThemedText style={styles.tagOptionIcon}>{option.icon}</ThemedText>
-                  <ThemedText style={[
-                    styles.tagOptionLabel,
-                    option.isSelected() && styles.tagOptionLabelSelected
-                  ]}>
-                    {option.label}
-                  </ThemedText>
-                  {option.isSelected() && (
-                    <ThemedText style={styles.checkmark}>✓</ThemedText>
-                  )}
-                </TouchableOpacity>
-              ))}
-            </ThemedView>
-          </>
-        )}
-      </>
-    );
-  };
-
-  const SettingsMenu = () => (
-    <>
-      <TouchableOpacity 
-        style={styles.settingsButton}
-        onPress={() => setShowSettings(!showSettings)}
-      >
-        <ThemedText style={styles.settingsIcon}>⚙️</ThemedText>
-      </TouchableOpacity>
-
-      {showSettings && (
-        <>
-          <TouchableOpacity 
-            style={styles.settingsBackdrop}
-            onPress={() => setShowSettings(false)}
-          />
-          <ThemedView style={styles.settingsMenuContainer}>
-            <TouchableOpacity
-              style={styles.settingsOption}
-              onPress={() => {
-                console.log('Hide Archived button pressed from', hideArchived, 'to', !hideArchived);
-                setHideArchived(!hideArchived);
-              }}
-            >
-              <ThemedText style={styles.settingsOptionLabel}>
-                Hide Archived
-              </ThemedText>
-              {hideArchived && <ThemedText style={styles.checkmark}>✓</ThemedText>}
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.settingsOption}
-              onPress={() => {
-                setHideSnoozed(!hideSnoozed);
-              }}
-            >
-              <ThemedText style={styles.settingsOptionLabel}>
-                Hide Snoozed
-              </ThemedText>
-              {hideSnoozed && <ThemedText style={styles.checkmark}>✓</ThemedText>}
-            </TouchableOpacity>
-          </ThemedView>
-        </>
-      )}
-    </>
-  );
 
   useEffect(() => {
-    let isSubscribed = true;
-
-    const initializeApp = async () => {
-      try {
-        const { data: { session: initialSession } } = await supabase.auth.getSession();
-        
-        if (!isSubscribed) return;
-        
-        setSession(initialSession);
-        if (initialSession?.user?.id) {
-          await fetchTodos(initialSession);
-        }
-      } catch (error) {
-        console.error('Error initializing app:', error);
-      } finally {
-        if (isSubscribed) {
-          setLoading(false);
-        }
+    // Initial fetch when component mounts
+    supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
+      setSession(initialSession);
+      if (initialSession?.user?.id) {
+        fetchTodos(initialSession); // Pass the session directly
       }
-    };
+      setLoading(false);
+    });
 
-    initializeApp();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
-      if (!isSubscribed) return;
-      
+    // Set up auth state change listener
+    const { data: { authSubscription } } = supabase.auth.onAuthStateChange((_event, newSession) => {
       setSession(newSession);
       if (newSession?.user?.id) {
-        await fetchTodos(newSession);
+        fetchTodos(newSession); // Pass the session directly
       }
     });
 
-    return () => {
-      isSubscribed = false;
-      subscription?.unsubscribe();
-    };
-  }, [hideArchived, hideSnoozed]);
+    // Set up auto-refresh interval (every 30 seconds)
+    const refreshInterval = setInterval(() => {
+      if (session?.user?.id) {
+        fetchTodos(session); // Pass the current session
+      }
+    }, 30000);
 
-  useEffect(() => {
-    fetchTodos();
-  }, [hideArchived, hideSnoozed]);
+    // Set up app state listener
+    const appStateSubscription = AppState.addEventListener('change', nextAppState => {
+      if (nextAppState === 'active' && session?.user?.id) {
+        fetchTodos(session); // Pass the current session
+      }
+    });
+
+    // Cleanup function
+    return () => {
+      clearInterval(refreshInterval);
+      appStateSubscription.remove();
+      if (authSubscription) {
+        authSubscription.unsubscribe();
+      }
+    };
+  }, []); // Empty dependency array means this runs once on mount
 
   const fetchTodos = async (currentSession = session) => {
     try {
+      // First check if we have a session
       if (!currentSession?.user?.id) {
         console.log('No user session, skipping fetch');
-        setTodos([]);
         return;
       }
 
@@ -292,22 +123,11 @@ export default function HomeScreen() {
       oneDayAgo.setDate(oneDayAgo.getDate() - 1);
       oneDayAgo.setHours(0, 0, 0, 0);
 
-      let query = supabase
+      const { data, error } = await supabase
         .from('todos')
         .select('*')
         .or(`completed_at.gt.${oneDayAgo.toISOString()},completed_at.is.null`)
-        .eq('user_id', currentSession.user.id);
-
-      if (hideArchived) {
-        query = query.or('archived.is.false,archived.is.null')
-      }
-
-      if (hideSnoozed) {
-        const now = new Date().toISOString();
-        query = query.or(`snooze_time.is.null,snooze_time.lt.${now}`);
-      }
-
-      const { data, error } = await query
+        .eq('user_id', currentSession.user.id)
         .order('completed', { ascending: true })
         .order('due_date', { ascending: true, nullsLast: true })
         .order('created_at', { ascending: true });
@@ -317,27 +137,23 @@ export default function HomeScreen() {
         throw error;
       }
 
-      const standardizedTodos = (data || []).map(todo => ({
+      // Standardize dates in fetched todos
+      const standardizedTodos = data?.map(todo => ({
         ...todo,
-        id: todo.id || String(Date.now()),
-        text: todo.text || '',
-        completed: Boolean(todo.completed),
         due_date: todo.due_date ? standardizeDate(new Date(todo.due_date)) : null,
-        created_at: standardizeDate(new Date(todo.created_at || Date.now())),
-        completed_at: todo.completed_at ? standardizeDate(new Date(todo.completed_at)) : null,
-        archived: Boolean(todo.archived),
-        snooze_time: todo.snooze_time ? standardizeDate(new Date(todo.snooze_time)) : null
-      }));
+        created_at: standardizeDate(new Date(todo.created_at)),
+        completed_at: todo.completed_at ? standardizeDate(new Date(todo.completed_at)) : null
+      })) || [];
 
       setTodos(standardizedTodos);
     } catch (error) {
       console.error('Error fetching todos:', error);
-      setTodos([]);
     }
   };
 
+  // Helper function to standardize date format
   const standardizeDate = (date: Date) => {
-    return date.toISOString();
+    return date.toISOString(); // This will always use .000Z format
   };
 
   const handleAddTodo = async () => {
@@ -351,6 +167,7 @@ export default function HomeScreen() {
       const today = new Date();
       today.setHours(12, 0, 0, 0);
 
+      // Create the todo object with a generated UUID
       const newTodo = {
         id: Date.now().toString(),
         text: inputText,
@@ -358,9 +175,7 @@ export default function HomeScreen() {
         completed: false,
         completed_at: null,
         due_date: autoSetDueDate ? standardizeDate(today) : null,
-        created_at: standardizeDate(new Date()),
-        archived: autoArchive,
-        snooze_time: autoSnooze ? standardizeDate(autoSnoozeDate) : null
+        created_at: standardizeDate(new Date())
       };
       
       try {
@@ -378,7 +193,7 @@ export default function HomeScreen() {
             flatListRef.current?.scrollToIndex({ 
               index: indexToScrollTo,
               animated: true,
-              viewPosition: 1
+              viewPosition: 1 // This will align the item at the bottom of the visible area
             });
           }, 100);
           return updatedTodos;
@@ -411,23 +226,28 @@ export default function HomeScreen() {
     }
   };
 
+  // Helper function for sorting todos
   const sortTodos = (todos: TodoItem[]) => {
     return todos.sort((a, b) => {
+      // First, sort by completion status (completed at bottom)
       if (a.completed !== b.completed) {
         return a.completed ? 1 : -1;
       }
       
+      // Then, sort by due date (nulls first, later dates first)
       if (a.due_date !== b.due_date) {
         if (!a.due_date) return 1;
         if (!b.due_date) return -1;
         return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
       }
       
+      // Finally, sort by creation date (newest first)
       const aTime = new Date(a.created_at).getTime();
       const bTime = new Date(b.created_at).getTime();
-      return aTime - bTime;
+      return aTime - bTime;  // Newest first
     });
   };
+
 
   const toggleTodoComplete = async (id: string, completed: boolean) => {
     try {
@@ -437,6 +257,7 @@ export default function HomeScreen() {
             Haptics.NotificationFeedbackType.Success
           );
         }
+        // Play sound when marking as completed
         const { sound } = await Audio.Sound.createAsync(
           require('../../assets/sounds/correct.mp3')
         );
@@ -509,60 +330,7 @@ export default function HomeScreen() {
     }
   };
 
-  const toggleArchiveTodo = async (id: string, archived: boolean) => {
-    try {
-      const { error } = await supabase
-        .from('todos')
-        .update({ archived: !archived })
-        .eq('id', id);
-
-      if (error) throw error;
-      
-      setTodos(currentTodos => 
-        currentTodos.map(todo => 
-          todo.id === id ? { ...todo, archived: !archived } : todo
-        )
-      );
-
-      if (Platform.OS !== 'web') {
-        await Haptics.impactAsync(
-          Haptics.ImpactFeedbackStyle.Medium
-        );
-      }
-    } catch (error) {
-      console.error('Error updating todo:', error);
-    }
-  };
-
-  const toggleSnoozeTimeTodo = async (id: string, snooze_time: string | null) => {
-    console.log('Toggling snooze time for todo:', id, 'to', snooze_time);
-    try {
-      const { error } = await supabase
-        .from('todos')
-        .update({ snooze_time: snooze_time })
-        .eq('id', id);
-
-      if (error) throw error;
-
-      console.log('Snooze time updated for todo:', id, 'to', snooze_time);
-      
-      setTodos(currentTodos => 
-        currentTodos.map(todo => 
-          todo.id === id ? { ...todo, snooze_time: snooze_time } : todo
-        )
-      );
-
-      if (Platform.OS !== 'web') {
-        await Haptics.impactAsync(
-          Haptics.ImpactFeedbackStyle.Medium
-        );
-      }
-    } catch (error) {
-      console.error('Error updating todo snooze time:', error);
-    }
-  };
-
-  const renderRightActions = (dragX: Animated.AnimatedInterpolation<number>, todo: TodoItem) => {
+  const renderRightActions = (dragX: Animated.AnimatedInterpolation<number>, id: string) => {
     const scale = dragX.interpolate({
       inputRange: [-100, 0],
       outputRange: [1, 0],
@@ -570,34 +338,19 @@ export default function HomeScreen() {
     });
 
     return (
-      <View style={styles.rightActions}>
-        <TouchableOpacity
-          style={[styles.actionButton, styles.archiveAction]}
-          onPress={() => toggleArchiveTodo(todo.id, todo.archived)}
+      <TouchableOpacity
+        style={styles.deleteAction}
+        onPress={() => deleteTodo(id)}
+      >
+        <Animated.Text 
+          style={[
+            styles.deleteActionText,
+            { transform: [{ scale }] }
+          ]}
         >
-          <Animated.Text 
-            style={[
-              styles.actionText,
-              { transform: [{ scale }] }
-            ]}
-          >
-            {todo.archived ? 'Unarchive' : 'Archive'}
-          </Animated.Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.actionButton, styles.deleteAction]}
-          onPress={() => deleteTodo(todo.id)}
-        >
-          <Animated.Text 
-            style={[
-              styles.actionText,
-              { transform: [{ scale }] }
-            ]}
-          >
-            Delete
-          </Animated.Text>
-        </TouchableOpacity>
-      </View>
+          Delete
+        </Animated.Text>
+      </TouchableOpacity>
     );
   };
 
@@ -606,6 +359,7 @@ export default function HomeScreen() {
     setDatePickerPosition({ x: pageX, y: pageY });
     setSelectedTodoId(todoId);
     
+    // Set the initial date based on the todo's due date or current date
     const todo = todos.find(t => t.id === todoId);
     const initialDate = todo?.due_date ? new Date(todo.due_date) : new Date(Date.now() - 86400000);
     setSelectedDate(initialDate);
@@ -632,22 +386,6 @@ export default function HomeScreen() {
     }
   };
 
-  const handleTodoClick = async (todo: TodoItem) => {
-    if (!tagMode) return;
-
-    tagOptions.forEach(option => {
-      if (option.isSelected()) {
-        option.action(todo);
-      }
-    });
-
-    if (Platform.OS !== 'web') {
-      await Haptics.impactAsync(
-        Haptics.ImpactFeedbackStyle.Light
-      );
-    }
-  };
-
   const renderTodoItem = ({ item, index }: { item: TodoItem, index: number }) => {
     const nextItem = todos[index + 1];
     const prevItem = todos[index - 1];
@@ -663,6 +401,8 @@ export default function HomeScreen() {
       (currentDate !== prevDate);
     const isLastInGroup = isLastCompleted || isLastInDateGroup;
 
+    // Calculate number of week boundaries between two dates
+    // where a week boundary is defined as the midnight between Sunday and Monday
     const getWeekBoundaryCount = (): number => {
       if (item.completed) return 0;
       if (!item.due_date || !nextItem?.due_date) return 0;
@@ -672,14 +412,15 @@ export default function HomeScreen() {
 
       if (date1.getTime() === date2.getTime()) return 0;
       
+      // Ensure we're working with the earlier and later date
       const [earlierDate, laterDate] = date1 < date2 ? [date1, date2] : [date2, date1];
       
       let count = 0;
       const current = new Date(earlierDate);
-      current.setDate(current.getDate() + 1);
+      current.setDate(current.getDate() + 1); // Start from the next day
 
       while (current.getTime() / (1000 * 60 * 60 * 24) <= laterDate.getTime() / (1000 * 60 * 60 * 24)) {
-        if (current.getDay() === 1) {
+        if (current.getDay() === 1) { // Monday
           count++;
         }
         current.setDate(current.getDate() + 1);
@@ -691,123 +432,100 @@ export default function HomeScreen() {
     return (
       <>
         <Swipeable
-          enabled={!tagMode}
           renderRightActions={(progress, dragX) => 
-            renderRightActions(dragX, item)
+            renderRightActions(dragX, item.id)
           }
           rightThreshold={-100}
         >
-          <TouchableOpacity
-            onPress={() => handleTodoClick(item)}
-            disabled={!tagMode}
+          <ThemedView 
+            onLayout={(event) => {
+              const { height } = event.nativeEvent.layout;
+              if (height > 0 && height !== itemHeight) {
+                setItemHeight(height);
+              }
+            }}
             style={[
-              styles.todoItemTouchable,
-              tagMode && styles.todoItemTagMode
+              styles.todoItem,
+              isFirstInGroup && styles.firstInGroup,
+              isLastInGroup && styles.lastInGroup,
+              !isFirstInGroup && !isLastInGroup && styles.middleItem
             ]}
           >
-            <ThemedView 
-              onLayout={(event) => {
-                const { height } = event.nativeEvent.layout;
-                if (height > 0 && height !== itemHeight) {
-                  setItemHeight(height);
-                }
-              }}
-              style={[
-                styles.todoItem,
-                isFirstInGroup && styles.firstInGroup,
-                isLastInGroup && styles.lastInGroup,
-                !isFirstInGroup && !isLastInGroup && styles.middleItem,
-              ]}
+            <TouchableOpacity 
+              style={styles.checkbox}
+              onPress={() => toggleTodoComplete(item.id, item.completed)}
             >
-              <TouchableOpacity 
-                style={styles.checkbox}
-                onPress={() => toggleTodoComplete(item.id, item.completed)}
-                disabled={tagMode}
-              >
-                {item.completed && <ThemedText style={styles.checkmark}>✓</ThemedText>}
-              </TouchableOpacity>
-              <ThemedView style={styles.todoTextContainer}>
-                {editingTodoId === item.id ? (
-                  <TextInput
-                    value={editingText}
-                    onChangeText={setEditingText}
-                    style={[styles.todoTextContent, styles.editInput]}
-                    autoFocus
-                    onBlur={() => {
-                      if (editingText.trim() !== '') {
-                        handleUpdateTodoText(item.id, editingText);
-                      }
-                      setEditingTodoId(null);
-                    }}
-                    onSubmitEditing={() => {
-                      if (editingText.trim() !== '') {
-                        handleUpdateTodoText(item.id, editingText);
-                      }
-                      setEditingTodoId(null);
-                    }}
-                  />
-                ) : (
-                  <TouchableOpacity 
-                    onPress={() => {
-                      if (tagMode) {
-                        handleTodoClick(item);
-                        return;
-                      }
-                      if (Platform.OS === 'web') {
-                        let lastClick = (item as any).lastClick;
-                        const currentTime = new Date().getTime();
-                        if (lastClick && currentTime - lastClick < 300) {
-                          setEditingTodoId(item.id);
-                          setEditingText(item.text);
-                        }
-                        (item as any).lastClick = currentTime;
-                      }
-                    }}
-                    onLongPress={() => {
-                      if (!tagMode && Platform.OS !== 'web') {
+              {item.completed && <ThemedText style={styles.checkmark}>✓</ThemedText>}
+            </TouchableOpacity>
+            <ThemedView style={styles.todoTextContainer}>
+              {editingTodoId === item.id ? (
+                <TextInput
+                  value={editingText}
+                  onChangeText={setEditingText}
+                  style={[styles.todoTextContent, styles.editInput]}
+                  autoFocus
+                  onBlur={() => {
+                    if (editingText.trim() !== '') {
+                      handleUpdateTodoText(item.id, editingText);
+                    }
+                    setEditingTodoId(null);
+                  }}
+                  onSubmitEditing={() => {
+                    if (editingText.trim() !== '') {
+                      handleUpdateTodoText(item.id, editingText);
+                    }
+                    setEditingTodoId(null);
+                  }}
+                />
+              ) : (
+                <TouchableOpacity 
+                  onPress={() => {
+                    if (Platform.OS === 'web') {
+                      let lastClick = (item as any).lastClick;
+                      const currentTime = new Date().getTime();
+                      if (lastClick && currentTime - lastClick < 300) {
                         setEditingTodoId(item.id);
                         setEditingText(item.text);
                       }
-                    }}
-                    style={styles.todoTextWrapper}
-                  >
-                    <ThemedText style={[
-                      styles.todoTextContent,
-                      item.completed && styles.completedText
-                    ]}>
-                      {item.text}
-                    </ThemedText>
-                  </TouchableOpacity>
-                )}
-                {item.due_date && (
-                  <TouchableOpacity onPress={(event) => showDatePickerAtPosition(event, item.id)}>
-                    <ThemedText style={[
-                      styles.metaText, 
-                      new Date(item.due_date) < new Date() ? styles.overdue : null,
-                      new Date(item.due_date).toDateString() === new Date().toDateString() ? styles.today : null
-                    ]}>
-                      {new Date(item.due_date).toLocaleString('en-US', { weekday: 'short' }) + ', ' + 
-                       new Date(item.due_date).toLocaleString('en-US', { month: 'numeric', day: 'numeric' })}
-                    </ThemedText>
-                  </TouchableOpacity>
-                )}
-              </ThemedView>
-              <ThemedView style={styles.todoMetaIcons}>
-                {item.archived && (
-                  <ThemedText style={styles.metaIcon}>📦</ThemedText>
-                )}
-                {item.snooze_time && (
-                  <ThemedText style={styles.metaIcon}>💤</ThemedText>
-                )}
-                <TouchableOpacity 
-                  style={styles.calendarButton}
-                  onPress={(event) => showDatePickerAtPosition(event, item.id)}
+                      (item as any).lastClick = currentTime;
+                    }
+                  }}
+                  onLongPress={() => {
+                    if (Platform.OS !== 'web') {
+                      setEditingTodoId(item.id);
+                      setEditingText(item.text);
+                    }
+                  }}
+                  style={styles.todoTextWrapper}
                 >
-                  <CalendarIcon date={item.due_date ? new Date(item.due_date) : undefined} />
+                  <ThemedText style={[
+                    styles.todoTextContent,
+                    item.completed && styles.completedText
+                  ]}>
+                    {item.text}
+                  </ThemedText>
                 </TouchableOpacity>
-              </ThemedView>
+              )}
+              {item.due_date && (
+                <TouchableOpacity onPress={(event) => showDatePickerAtPosition(event, item.id)}>
+                  <ThemedText style={[
+                    styles.metaText, 
+                    new Date(item.due_date) < new Date() ? styles.overdue : null,
+                    new Date(item.due_date).toDateString() === new Date().toDateString() ? styles.today : null
+                  ]}>
+                    {new Date(item.due_date).toLocaleString('en-US', { weekday: 'short' }) + ', ' + 
+                     new Date(item.due_date).toLocaleString('en-US', { month: 'numeric', day: 'numeric' })}
+                  </ThemedText>
+                </TouchableOpacity>
+              )}
             </ThemedView>
-          </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.calendarButton}
+              onPress={(event) => showDatePickerAtPosition(event, item.id)}
+            >
+              <CalendarIcon date={item.due_date ? new Date(item.due_date) : undefined} />
+            </TouchableOpacity>
+          </ThemedView>
         </Swipeable>
         {Array.from({ length: getWeekBoundaryCount() }, (_, i) => (
           <ThemedView key={`divider-${item.id}-${i}`} style={styles.weekDivider} />
@@ -918,7 +636,7 @@ export default function HomeScreen() {
     const timeDiff = currentTime - lastScrollTime;
     
     if (timeDiff > 0) {
-      const velocity = (currentY - lastScrollY) / timeDiff;
+      const velocity = (currentY - lastScrollY) / timeDiff; // pixels per millisecond
       
       if (velocity < keyboardDismissOffset) {
         Keyboard.dismiss();
@@ -994,7 +712,15 @@ export default function HomeScreen() {
               onSubmitEditing={handleAddTodo}
               returnKeyType="done"
             />
-            <TagMenu />
+            <TouchableOpacity 
+              style={[
+                styles.autoDateToggle, 
+                autoSetDueDate && styles.autoDateToggleActive
+              ]} 
+              onPress={() => setAutoSetDueDate(!autoSetDueDate)}
+            >
+              <CalendarIcon date={new Date()} />
+            </TouchableOpacity>
             <TouchableOpacity 
               style={styles.addButton}  
               onPress={handleAddTodo}
@@ -1026,7 +752,6 @@ export default function HomeScreen() {
           >
             <ThemedText style={styles.signOutText}>Sign Out</ThemedText>
           </TouchableOpacity>
-          <SettingsMenu />
         </LinearGradient>
       </KeyboardAvoidingView>
     </GestureHandlerRootView>
@@ -1042,14 +767,13 @@ const styles = StyleSheet.create({
   },
   inputContainer: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 0,
     backgroundColor: 'transparent',
     marginTop: 'auto',
     paddingTop: 10,
     paddingBottom: Platform.OS === 'ios' ? 10 : 0,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.1)',
-    alignItems: 'center',
   },
   input: {
     flex: 1,
@@ -1059,15 +783,12 @@ const styles = StyleSheet.create({
     padding: 12,
     fontSize: 16,
     backgroundColor: '#fff',
-    minHeight: 48,
   },
   addButton: {
     backgroundColor: '#007AFF',
     padding: 12,
     borderRadius: 8,
     justifyContent: 'center',
-    minHeight: 48,
-    minWidth: 80,
   },
   addButtonText: {
     color: '#fff',
@@ -1128,7 +849,7 @@ const styles = StyleSheet.create({
   deleteAction: {
     backgroundColor: '#FF3B30',
     justifyContent: 'center',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     width: 100,
     height: '100%',
   },
@@ -1187,6 +908,7 @@ const styles = StyleSheet.create({
   },
   calendarButton: {
     padding: 8,
+    marginLeft: 8,
   },
   calendarIconContainer: {
     width: 24,
@@ -1268,7 +990,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 6,
   },
   lastInGroup: {
-    marginBottom: 10,
+    marginBottom: 10, // Adds space after the last item in a date group
     borderBottomLeftRadius: 6,
     borderBottomRightRadius: 6,
   },
@@ -1293,160 +1015,5 @@ const styles = StyleSheet.create({
   signOutText: {
     color: '#fff',
     fontSize: 14,
-  },
-  tagButton: {
-    width: 48,
-    height: 48,
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#ccc',
-  },
-  tagButtonIcon: {
-    fontSize: 24,
-  },
-  tagMenuBackdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    zIndex: 999,
-  },
-  tagMenuContainer: {
-    position: 'absolute',
-    bottom: 70,
-    right: 100,
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    padding: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-    width: 200,
-    zIndex: 1000,
-  },
-  tagOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 12,
-    borderRadius: 6,
-    position: 'relative',
-    minHeight: 48,
-  },
-  tagOptionSelected: {
-    backgroundColor: 'rgba(0, 122, 255, 0.1)',
-  },
-  tagOptionIcon: {
-    width: 24,
-    height: 24,
-    marginRight: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-    display: 'flex',
-  },
-  tagOptionLabel: {
-    fontSize: 16,
-    color: '#333',
-  },
-  tagOptionLabelSelected: {
-    fontWeight: 'bold',
-  },
-  rightActions: {
-    flexDirection: 'row',
-    height: '100%',
-  },
-  actionButton: {
-    width: 100,
-    justifyContent: 'center',
-    alignItems: 'center',
-    height: '100%',
-  },
-  actionText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    textAlign: 'center',
-  },
-  archiveAction: {
-    backgroundColor: '#007AFF',
-  },
-  todoTagButton: {
-    padding: 8,
-    marginLeft: 4,
-  },
-  todoTagIcon: {
-    fontSize: 16,
-  },
-  tagButtonActive: {
-    backgroundColor: '#007AFF',
-    borderColor: '#007AFF',
-  },
-  todoItemTouchable: {
-    width: '100%',
-  },
-  todoItemTagMode: {
-    opacity: 0.8,
-    cursor: 'pointer',
-  },
-  settingsButton: {
-    position: 'absolute',
-    top: Platform.OS === 'ios' ? 60 : 20,
-    right: 100,
-    padding: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderRadius: 8,
-  },
-  settingsIcon: {
-    fontSize: 16,
-  },
-  settingsBackdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    zIndex: 999,
-  },
-  settingsMenuContainer: {
-    position: 'absolute',
-    top: Platform.OS === 'ios' ? 110 : 70,
-    right: 80,
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    padding: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-    width: 200,
-    zIndex: 1000,
-  },
-  settingsOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 12,
-    borderRadius: 6,
-  },
-  settingsOptionLabel: {
-    fontSize: 16,
-    color: '#333',
-  },
-  todoMetaIcons: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 0,
-    backgroundColor: 'transparent',
-  },
-  metaIcon: {
-    fontSize: 16,
-    marginLeft: 4,
   },
 });
