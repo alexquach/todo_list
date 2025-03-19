@@ -25,6 +25,30 @@ In the output, you'll find options to open the app in a
 
 You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
 
+## Google Calendar Integration (Desktop Only)
+
+This app includes Google Calendar integration for desktop web users. To set it up:
+
+1. Create a Google Cloud project at [console.cloud.google.com](https://console.cloud.google.com/)
+2. Enable the Google Calendar API
+3. Create OAuth 2.0 credentials:
+   - Application type: Web application
+   - Authorized JavaScript origins: `http://localhost:8081`
+   - Authorized redirect URIs: `https://auth.expo.io/@your-expo-username/todolistapp`
+4. Copy your Client ID and update it in the `GoogleCalendar.tsx` component:
+   ```typescript
+   const CLIENT_ID = 'YOUR_GOOGLE_CLIENT_ID';
+   ```
+5. Make sure to use your Expo username in the redirect URI:
+   ```typescript
+   const REDIRECT_URI = AuthSession.makeRedirectUri({
+     scheme: 'todolistapp',
+     path: 'redirect'
+   });
+   ```
+
+When running the app on a desktop browser, you'll see the Google Calendar integration panel on the right side of your todo list.
+
 ## Get a fresh project
 
 When you're ready, run:

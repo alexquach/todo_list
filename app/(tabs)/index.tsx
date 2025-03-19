@@ -12,6 +12,7 @@ import { ThemedView } from '@/components/ThemedView';
 import { supabase } from '@/lib/supabase';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Auth } from '@/components/Auth';
+import GoogleCalendar from '../../components/GoogleCalendar';
 
 interface TodoItem {
   id: string;
@@ -969,53 +970,61 @@ export default function HomeScreen() {
             Platform.OS !== 'web' && { paddingBottom: tabBarHeight }
           ]}
         >
-          <ThemedText type="title">Todo List</ThemedText>
-          
-          <FlatList
-            data={todos}
-            keyExtractor={(item) => item.id}
-            renderItem={renderTodoItem}
-            style={styles.list}
-            contentContainerStyle={[
-              styles.listContent,
-              { flexGrow: 1 }
-            ]}
-            getItemLayout={getItemLayout}
-            refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={onRefresh}
-                tintColor="#ffffff"
-                colors={['#ffffff']}
-                progressBackgroundColor="#3B82F6"
+          <ThemedView style={styles.layoutContainer}>
+            <ThemedView style={styles.todoListContainer}>
+              <ThemedText type="title">Todo List</ThemedText>
+              
+              <FlatList
+                data={todos}
+                keyExtractor={(item) => item.id}
+                renderItem={renderTodoItem}
+                style={styles.todoList}
+                contentContainerStyle={styles.listContent}
+                getItemLayout={getItemLayout}
+                onScroll={handleScroll}
+                scrollEventThrottle={16}
+                refreshControl={
+                  <RefreshControl
+                    refreshing={refreshing}
+                    onRefresh={onRefresh}
+                    tintColor="#ffffff"
+                  />
+                }
+                ListEmptyComponent={
+                  <ThemedText style={styles.emptyListText}>
+                    No todos yet. Add one below!
+                  </ThemedText>
+                }
               />
-            }
-            ref={flatListRef}
-            onScroll={handleScroll}
-            scrollEventThrottle={16}
-          />
 
-          <ThemedView style={styles.inputContainer}>
-            <TextInput
-              ref={inputRef}
-              style={styles.input}
-              value={inputText}
-              onChangeText={setInputText}
-              placeholder="Add a new todo..."
-              placeholderTextColor="#666"
-              onSubmitEditing={handleAddTodo}
-              returnKeyType="done"
-            />
-            <TagMenu />
-            <TouchableOpacity 
-              style={styles.addButton}  
-              onPress={handleAddTodo}
-              activeOpacity={0.7}
-            >
-              <ThemedText style={styles.addButtonText}>Add</ThemedText>
-            </TouchableOpacity>
+              <ThemedView style={styles.inputContainer}>
+                <TextInput
+                  ref={inputRef}
+                  style={styles.input}
+                  value={inputText}
+                  onChangeText={setInputText}
+                  placeholder="Add a new todo..."
+                  placeholderTextColor="#666"
+                  onSubmitEditing={handleAddTodo}
+                />
+                <TagMenu />
+                <TouchableOpacity 
+                  style={styles.addButton}  
+                  onPress={handleAddTodo}
+                  activeOpacity={0.7}
+                >
+                  <ThemedText style={styles.addButtonText}>Add</ThemedText>
+                </TouchableOpacity>
+              </ThemedView>
+            </ThemedView>
+            
+            {Platform.OS === 'web' && (
+              <ThemedView style={styles.calendarContainer}>
+                <GoogleCalendar />
+              </ThemedView>
+            )}
           </ThemedView>
-          
+
           {showDatePicker && (
             <>
               <TouchableOpacity 
@@ -1299,7 +1308,7 @@ const styles = StyleSheet.create({
     top: Platform.OS === 'ios' ? 60 : 20,
     right: 20,
     padding: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: 'rgba(128, 128, 128, 0.2)',
     borderRadius: 8,
   },
   signOutText: {
@@ -1460,5 +1469,30 @@ const styles = StyleSheet.create({
   metaIcon: {
     fontSize: 16,
     marginLeft: 4,
+  },
+  layoutContainer: {
+    flex: 1,
+    flexDirection: Platform.OS === 'web' ? 'row' : 'column',
+    width: '100%',
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  todoListContainer: {
+    flex: 1,
+    width: Platform.OS === 'web' ? '65%' : '100%',
+  },
+  calendarContainer: {
+    display: Platform.OS === 'web' ? 'flex' : 'none',
+    width: Platform.OS === 'web' ? '35%' : '0%',
+    paddingLeft: Platform.OS === 'web' ? 20 : 0,
+  },
+  todoList: {
+    flex: 1,
+    width: '100%',
+  },
+  emptyListText: {
+    color: '#888',
+    textAlign: 'center',
+    marginTop: 20,
   },
 });
