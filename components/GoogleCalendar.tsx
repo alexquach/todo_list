@@ -9,8 +9,8 @@ import { ThemedText } from './ThemedText';
 import { ThemedView } from './ThemedView';
 
 // Configuration for Google OAuth
-const CLIENT_ID = '';
-const CLIENT_SECRET = ''; // Add your client secret from Google Cloud Console here
+const CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID;
+const CLIENT_SECRET = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_SECRET;
 
 // Create a safer way to get the redirect URI that works with SSR
 const getRedirectUri = () => {
