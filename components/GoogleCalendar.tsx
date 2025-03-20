@@ -133,9 +133,11 @@ export default function GoogleCalendar({ onTodoDrop }: { onTodoDrop?: (todoItem:
   const [editEventText, setEditEventText] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isEventResizing, setIsEventResizing] = useState(false);
-  const [resizeStartY, setResizeStartY] = useState(0);
-  const [originalEventHeight, setOriginalEventHeight] = useState(0);
-  const [temporaryEventHeight, setTemporaryEventHeight] = useState(0);
+  const [resizeData, setResizeData] = useState<{ additionalHours: number }>({ additionalHours: 0 });
+  const [resizeStartY, setResizeStartY] = useState<number>(0);
+  const [originalEventHeight, setOriginalEventHeight] = useState<number>(0);
+  const [temporaryEventHeight, setTemporaryEventHeight] = useState<number>(0);
+  const [resizeGhostPosition, setResizeGhostPosition] = useState<{ top: number, height: number, left: number, width: number } | null>(null);
   const [isDraggingEvent, setIsDraggingEvent] = useState(false);
   const [draggedEvent, setDraggedEvent] = useState<PositionedEvent | null>(null);
   const [dragStartY, setDragStartY] = useState(0);
@@ -154,6 +156,8 @@ export default function GoogleCalendar({ onTodoDrop }: { onTodoDrop?: (todoItem:
     dayIndex: number;
     timePosition: number;
   } | null>(null);
+  const [positionedEvents, setPositionedEvents] = useState<PositionedEvent[]>([]);
+  const editingPanelRef = React.useRef(null);
 
   // Update current time every minute
   useEffect(() => {
@@ -361,7 +365,9 @@ export default function GoogleCalendar({ onTodoDrop }: { onTodoDrop?: (todoItem:
   };
 
   // Format date for display
-  const formatEventTime = (dateTimeString: string) => {
+  const formatEventTime = (dateTimeString: string | undefined) => {
+    if (!dateTimeString) return '';
+    
     const date = new Date(dateTimeString);
     let formattedTime = date.toLocaleTimeString([], { 
       hour: 'numeric', 
@@ -429,11 +435,18 @@ export default function GoogleCalendar({ onTodoDrop }: { onTodoDrop?: (todoItem:
       
       // Sort events by start time
       dayEvents.sort((a, b) => {
-        return new Date(a.start.dateTime).getTime() - new Date(b.start.dateTime).getTime();
+        const aTime = a.start.dateTime ? new Date(a.start.dateTime).getTime() : 0;
+        const bTime = b.start.dateTime ? new Date(b.start.dateTime).getTime() : 0;
+        return aTime - bTime;
       });
       
       // Position each event
       dayEvents.forEach(event => {
+        if (!event.start.dateTime || !event.end.dateTime) {
+          // Skip all-day events or events without proper time information
+          return;
+        }
+        
         const startTime = new Date(event.start.dateTime);
         const endTime = new Date(event.end.dateTime);
         
@@ -679,62 +692,72 @@ export default function GoogleCalendar({ onTodoDrop }: { onTodoDrop?: (todoItem:
   };
 
   // Modify the updateEvent function to use a separate loading state
-  const updateEvent = async (eventId: string, updates: Partial<CalendarEvent>) => {
-    if (!token) return;
+  const updateEvent = async (eventId: string, updates: Partial<CalendarEvent>): Promise<void> => {
+    if (!token) {
+      console.error('No access token available');
+      return Promise.reject('No access token');
+    }
     
     try {
-      setIsUpdatingEvent(true);
-      
-      // First get the current event to merge with updates
-      const eventResponse = await fetch(
-        `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-      
-      if (!eventResponse.ok) {
-        console.error('Failed to fetch event:', await eventResponse.text());
-        throw new Error(`Failed to fetch event: ${eventResponse.statusText}`);
-      }
-      
-      const currentEvent = await eventResponse.json();
-      
-      // Merge updates with current event
-      const updatedEvent = { ...currentEvent, ...updates };
-      
-      // Send the update to Google Calendar API
+      // First, get the current event to make sure we have all fields
       const response = await fetch(
         `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`,
         {
-          method: 'PUT',
           headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify(updatedEvent),
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
         }
       );
       
       if (!response.ok) {
-        const responseText = await response.text();
-        throw new Error(`Failed to update event (${response.status}): ${responseText}`);
+        throw new Error(`Failed to fetch event: ${response.status}`);
       }
       
-      // Silently refresh events without showing loading overlay
-      fetchEvents(token, true);
+      const currentEvent = await response.json();
       
-      // Clear editing state
-      setEditingEvent(null);
-      setEditEventText('');
-    } catch (e: unknown) {
-      const errorMessage = e instanceof Error ? e.message : String(e);
-      setError(`Failed to update event: ${errorMessage}`);
-      console.error('Update error:', e);
-    } finally {
-      setIsUpdatingEvent(false);
+      // Merge the current event with our updates
+      const updatedEvent = {
+        ...currentEvent,
+        ...updates,
+        // Make sure nested objects are properly merged
+        end: {
+          ...currentEvent.end,
+          ...(updates.end || {})
+        },
+        start: {
+          ...currentEvent.start,
+          ...(updates.start || {})
+        }
+      };
+      
+      // Send the update to the API
+      const updateResponse = await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`,
+        {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(updatedEvent)
+        }
+      );
+      
+      if (!updateResponse.ok) {
+        throw new Error(`Failed to update event: ${updateResponse.status}`);
+      }
+      
+      // Return the updated event
+      const result = await updateResponse.json();
+      console.log('Event updated successfully:', result);
+      
+      // Show success feedback to the user
+      // This could be a toast notification or other UI feedback
+      return Promise.resolve();
+    } catch (error) {
+      console.error('Error updating event:', error);
+      return Promise.reject(error);
     }
   };
 
@@ -762,9 +785,10 @@ export default function GoogleCalendar({ onTodoDrop }: { onTodoDrop?: (todoItem:
       // Silently refresh events without showing loading overlay
       fetchEvents(token, true);
       
-      // Clear state
+      // Clear editing state
       setShowDeleteConfirm(false);
       setEditingEvent(null);
+      setEditEventText('');
     } catch (e: unknown) {
       const errorMessage = e instanceof Error ? e.message : String(e);
       setError(`Failed to delete event: ${errorMessage}`);
@@ -781,61 +805,156 @@ export default function GoogleCalendar({ onTodoDrop }: { onTodoDrop?: (todoItem:
     setResizeStartY(clientY);
     setOriginalEventHeight(event.height);
     setTemporaryEventHeight(event.height);
+    
+    // Initialize resize ghost position
+    setResizeGhostPosition({
+      top: event.top,
+      height: event.height,
+      left: event.left,
+      width: event.width
+    });
+    
+    // Initialize resize data
+    setResizeData({ additionalHours: 0 });
   };
 
-  // Add function to handle resize move
+  // Update the handleResizeMove function with better logging
   const handleResizeMove = (clientY: number) => {
     if (!isEventResizing || !editingEvent) return;
     
     const deltaY = clientY - resizeStartY;
-    const newHeight = Math.max(30, originalEventHeight + deltaY);
+    console.log('Raw delta Y:', deltaY);
+    
+    // 15 minutes = 15px at hourHeight of 60px
+    const snapInterval = 15; // 15 minutes
+    const pixelsPerMinute = 60 / 60; // hourHeight / minutes in hour
+    const snapPixels = snapInterval * pixelsPerMinute; // pixels for 15 minutes
+    
+    // Snap to nearest 15-minute interval
+    const snappedDeltaY = Math.round(deltaY / snapPixels) * snapPixels;
+    console.log('Snapped delta Y:', snappedDeltaY);
+    
+    const newHeight = Math.max(30, originalEventHeight + snappedDeltaY);
     setTemporaryEventHeight(newHeight);
+    
+    // Calculate additional hours based on delta height
+    const hourHeight = 60; // Height for one hour in pixels
+    const additionalHours = snappedDeltaY / hourHeight;
+    console.log('Calculated additionalHours:', additionalHours);
+    
+    // Update the ghost position
+    if (resizeGhostPosition) {
+      setResizeGhostPosition({
+        ...resizeGhostPosition,
+        height: newHeight
+      });
+    }
+    
+    // Update resize data - using a separate call to ensure it's registered
+    console.log('Setting resizeData.additionalHours to:', additionalHours);
+    setResizeData({ additionalHours });
   };
 
-  // Add function to finish resizing an event
+  // Update the finishResizeEvent function 
   const finishResizeEvent = () => {
-    if (!isEventResizing || !editingEvent) return;
+    console.log('finishResizeEvent called');
+    if (!isEventResizing || !editingEvent) {
+      console.log('Early return - isEventResizing:', isEventResizing, 'editingEvent:', !!editingEvent);
+      return;
+    }
     
-    // Calculate new end time based on height change
+    // Calculate the additionalHours directly from current heights
+    // This ensures we don't rely on possibly stale resizeData
+    const currentAdditionalHeight = temporaryEventHeight - originalEventHeight;
     const hourHeight = 60; // Height for one hour in pixels
-    const additionalHours = (temporaryEventHeight - originalEventHeight) / hourHeight;
+    const currentAdditionalHours = currentAdditionalHeight / hourHeight;
     
-    if (Math.abs(additionalHours) > 0.05) { // Only update if changed by at least 3 minutes
+    console.log('Current values:');
+    console.log('- From resizeData:', resizeData.additionalHours);
+    console.log('- Calculated from heights:', currentAdditionalHours);
+    console.log('- temporaryEventHeight:', temporaryEventHeight);
+    console.log('- originalEventHeight:', originalEventHeight);
+    
+    // Use the calculated value to be sure
+    const additionalHours = currentAdditionalHours;
+    
+    // Only update if changed (any 15-minute increment is significant enough)
+    if (Math.abs(additionalHours) > 0.01) {
+      console.log('Updating event with additionalHours:', additionalHours);
+      
       // Get current end time
-      const currentEndTime = new Date(editingEvent.end.dateTime);
+      const currentEndTime = editingEvent.end.dateTime ? new Date(editingEvent.end.dateTime) : new Date();
       
       // Add the additional time
       const newEndTime = new Date(currentEndTime.getTime() + (additionalHours * 60 * 60 * 1000));
       
-      // Update the event
+      // Format the time in ISO format for the API
+      const formattedEndTime = newEndTime.toISOString();
+      
+      // Update the event in the API
       updateEvent(editingEvent.id, {
         end: {
-          dateTime: newEndTime.toISOString(),
+          dateTime: formattedEndTime,
           timeZone: editingEvent.end.timeZone
         }
+      }).then(() => {
+        console.log('Event updated successfully with new end time:', formatEventTime(formattedEndTime));
+        
+        // Update the local state to reflect the changes
+        setEvents(prevEvents => 
+          prevEvents.map(event => 
+            event.id === editingEvent.id 
+              ? {
+                  ...event,
+                  end: {
+                    ...event.end,
+                    dateTime: formattedEndTime
+                  }
+                } 
+              : event
+          )
+        );
+        
+        // Re-calculate positioned events based on updated data
+        const positioned = getPositionedEvents();
+        setPositionedEvents(positioned);
+      })
+      .catch(error => {
+        console.error('Failed to update event:', error);
+        // Reset the UI if the API call fails
+        const originalPositioned = getPositionedEvents();
+        setPositionedEvents(originalPositioned);
       });
+    } else {
+      console.log('No significant change detected, skipping update');
     }
     
-    // Reset state
+    // Reset resize state
     setIsEventResizing(false);
-    setEditingEvent(null);
-    setTemporaryEventHeight(0);
-    setOriginalEventHeight(0);
-    setResizeStartY(0);
+    setResizeData({ additionalHours: 0 });
+    setResizeGhostPosition(null);
+    
+    // Don't clear the editing event since we're using a bottom panel now
+    // This allows users to continue editing the same event
+    // setEditingEvent(null);
   };
 
-  // Update the startDragEvent function with logging
+  // Update the startDragEvent function to better initialize state
   const startDragEvent = (event: PositionedEvent, clientX: number, clientY: number) => {
-    console.log('startDragEvent', {
-      id: event.id,
-      summary: event.summary,
-      position: { top: event.top, left: event.left }
-    });
+    console.log('Starting drag operation for event:', event.summary);
     
+    // Clean up any existing resize state first
+    if (isEventResizing) {
+      setIsEventResizing(false);
+      setResizeGhostPosition(null);
+    }
+    
+    // Set drag-specific state
     setIsDraggingEvent(true);
     setDraggedEvent(event);
     setDragStartY(clientY);
     setDragStartX(clientX);
+    setEditingEvent(event); // Keep the event selected while dragging
     
     // Calculate the offset within the event where the drag started
     const eventRect = document.getElementById(`event-${event.id}`)?.getBoundingClientRect();
@@ -843,128 +962,204 @@ export default function GoogleCalendar({ onTodoDrop }: { onTodoDrop?: (todoItem:
       setDragOffsetY(clientY - eventRect.top);
     }
     
+    // Set initial temporary position
     setTemporaryEventPosition({
       top: event.top,
       left: event.left
     });
     
-    // Initialize the snapped position with the current event's position and dimensions
+    // Initialize snapped position
     setSnappedPosition({
       top: event.top,
       left: event.left,
       width: event.width,
       height: event.height
     });
-    
-    console.log('Ghost initial position set to:', {
-      top: event.top,
-      left: event.left,
-      width: event.width,
-      height: event.height
-    });
   };
 
-  // Modify the handleDragMove function to use the ref
-  const handleDragMove = (clientX: number, clientY: number) => {
-    if (!isDraggingEvent || !draggedEvent) {
-      console.log('Drag move ignored - not in dragging state');
-      return;
-    }
-    
-    // Get grid element using the ref instead of querySelector
-    const gridElement = gridRef.current;
-    if (!gridElement) {
-      console.error('Grid element ref not found!');
-      return;
-    }
-    
-    // Get the grid's measurements using the native method
-    // @ts-ignore - measure exists on the native element
-    gridElement.measure((x, y, width, height, pageX, pageY) => {
-      // Calculate the new position relative to the grid
-      const newTop = Math.max(0, clientY - pageY - dragOffsetY);
-      
-      // Calculate the column based on the x position
-      const columnWidth = width / 7;
-      const column = Math.min(6, Math.max(0, Math.floor((clientX - pageX) / columnWidth)));
-      const newLeft = column * (100 / 7);
-      
-      // Set the actual drag position (for visual feedback during drag)
-      setTemporaryEventPosition({
-        top: newTop,
-        left: newLeft
-      });
-      
-      // Calculate the snapped position
-      const hourHeight = 60; // Height for one hour in pixels
-      const snapInterval = 15; // Snap to 15-minute intervals
-      const snapIntervalHeight = (snapInterval / 60) * hourHeight; // 15px
-      
-      // Calculate snapped top position
-      const snapMultiplier = Math.round(newTop / snapIntervalHeight);
-      const snappedTop = snapMultiplier * snapIntervalHeight;
-      
-      // Update the snapped position state
-      const newSnappedPosition = {
-        top: snappedTop,
-        left: newLeft,
-        width: draggedEvent.width,
-        height: draggedEvent.height
-      };
-      
-      setSnappedPosition(newSnappedPosition);
-      
-    //   console.log('Drag move position:', { 
-    //     temporaryPos: { top: newTop, left: newLeft },
-    //     snappedPos: newSnappedPosition
-    //   });
-    });
-  };
-
-  // Modified function to finish dragging with snapping
+  // Update finishDragEvent to apply snapped positions and update the API
   const finishDragEvent = () => {
-    if (!isDraggingEvent || !draggedEvent) return;
+    if (!isDraggingEvent || !draggedEvent) {
+      return;
+    }
     
-    // Use the snapped position instead of the temporary position
+    console.log('Finishing drag operation...');
+    
+    // Calculate what actually changed
+    const oldColumn = draggedEvent.column;
+    const newColumn = Math.round(temporaryEventPosition.left / (100/7));
+    
+    const oldTop = draggedEvent.top;
+    const newTop = temporaryEventPosition.top;
+    
+    // Calculate time difference
     const hourHeight = 60; // Height for one hour in pixels
+    const pixelsPerMinute = hourHeight / 60;
     
-    // Calculate the new start hour based on the snapped position
-    const newStartHour = snappedPosition.top / hourHeight;
-    const newStartHourWhole = Math.floor(newStartHour);
-    const newStartMinutes = Math.round((newStartHour - newStartHourWhole) * 60);
+    // Calculate the old time (in minutes since midnight)
+    const oldStartMinutes = oldTop / pixelsPerMinute;
     
-    // Calculate which day of the week the event was dropped on
-    const newColumn = Math.round(snappedPosition.left / (100 / 7));
-    const newDate = new Date(currentWeek[newColumn]);
+    // Calculate the new time (in minutes since midnight)
+    const newStartMinutes = newTop / pixelsPerMinute;
     
-    // Set hours and minutes for the new start time
-    newDate.setHours(newStartHourWhole, newStartMinutes, 0, 0);
+    // Time difference in minutes
+    const minutesDifference = newStartMinutes - oldStartMinutes;
     
-    // Calculate event duration in milliseconds
-    const originalStartTime = new Date(draggedEvent.start.dateTime);
-    const originalEndTime = new Date(draggedEvent.end.dateTime);
-    const duration = originalEndTime.getTime() - originalStartTime.getTime();
+    // Calculate day difference
+    const dayDifference = newColumn - oldColumn;
     
-    // Calculate new end time by adding the same duration
-    const newEndTime = new Date(newDate.getTime() + duration);
+    console.log(`Event moved: 
+      - Column change: ${oldColumn} -> ${newColumn} (${dayDifference} days)
+      - Time change: ${Math.floor(oldStartMinutes/60)}:${Math.round(oldStartMinutes%60)} -> ${Math.floor(newStartMinutes/60)}:${Math.round(newStartMinutes%60)} (${minutesDifference} minutes)`);
     
-    // Update the event with new start and end times
-    updateEvent(draggedEvent.id, {
-      start: {
-        dateTime: newDate.toISOString(),
-        timeZone: draggedEvent.start.timeZone
-      },
-      end: {
-        dateTime: newEndTime.toISOString(),
-        timeZone: draggedEvent.end.timeZone
+    // Only update if something changed
+    if (dayDifference !== 0 || Math.abs(minutesDifference) >= 1) {
+      if (!draggedEvent.start.dateTime || !draggedEvent.end.dateTime) {
+        console.error('Event missing dateTime properties');
+        setIsDraggingEvent(false);
+        setDraggedEvent(null);
+        return;
       }
-    });
+      
+      // Calculate new start and end times
+      const originalStart = new Date(draggedEvent.start.dateTime);
+      const originalEnd = new Date(draggedEvent.end.dateTime);
+      
+      // Apply time difference (in minutes)
+      const newStart = new Date(originalStart);
+      newStart.setMinutes(originalStart.getMinutes() + minutesDifference);
+      
+      const newEnd = new Date(originalEnd);
+      newEnd.setMinutes(originalEnd.getMinutes() + minutesDifference);
+      
+      // Apply day difference
+      if (dayDifference !== 0) {
+        newStart.setDate(newStart.getDate() + dayDifference);
+        newEnd.setDate(newEnd.getDate() + dayDifference);
+      }
+      
+      // Format for API
+      const formattedStart = newStart.toISOString();
+      const formattedEnd = newEnd.toISOString();
+      
+      console.log(`Updating event times:
+        - Original: ${formatEventTime(draggedEvent.start.dateTime)} - ${formatEventTime(draggedEvent.end.dateTime)}
+        - New: ${formatEventTime(formattedStart)} - ${formatEventTime(formattedEnd)}`);
+      
+      // Update the event in the API
+      updateEvent(draggedEvent.id, {
+        start: {
+          dateTime: formattedStart,
+          timeZone: draggedEvent.start.timeZone
+        },
+        end: {
+          dateTime: formattedEnd,
+          timeZone: draggedEvent.end.timeZone
+        }
+      }).then(() => {
+        console.log('Event updated successfully after drag');
+        
+        // Update the local state to reflect the changes
+        setEvents(prevEvents => 
+          prevEvents.map(event => 
+            event.id === draggedEvent.id 
+              ? {
+                  ...event,
+                  start: {
+                    ...event.start,
+                    dateTime: formattedStart
+                  },
+                  end: {
+                    ...event.end,
+                    dateTime: formattedEnd
+                  }
+                } 
+              : event
+          )
+        );
+      })
+      .catch(error => {
+        console.error('Failed to update event after drag:', error);
+      });
+    } else {
+      console.log('No significant change detected, skipping API update');
+    }
     
-    // Reset state
+    // Reset drag state
     setIsDraggingEvent(false);
     setDraggedEvent(null);
-    setTemporaryEventPosition({ top: 0, left: 0 });
-    setSnappedPosition({ top: 0, left: 0, width: 0, height: 0 });
+  };
+
+  // Update handleDragMove to properly snap in both directions
+  const handleDragMove = (clientX: number, clientY: number) => {
+    if (!isDraggingEvent || !draggedEvent) return;
+
+    // Calculate raw delta from the starting position
+    const deltaY = clientY - dragStartY;
+    const deltaX = clientX - dragStartX;
+    
+    // For vertical position: snap to 15-minute intervals
+    const hourHeight = 60; // Height for one hour in pixels
+    const snapInterval = 15; // 15 minutes
+    const pixelsPerMinute = hourHeight / 60; // 1 pixel per minute
+    const snapPixels = snapInterval * pixelsPerMinute; // Pixels for 15 minutes
+    
+    // Get starting top position and add deltaY
+    const rawNewTop = draggedEvent.top + deltaY;
+    
+    // Snap to nearest 15-minute interval
+    const snappedTop = Math.round(rawNewTop / snapPixels) * snapPixels;
+    
+    // For horizontal position: snap to day columns
+    // Calculate which day column we're over based on percentage widths
+    const gridElement = gridRef.current;
+    let newLeft = draggedEvent.left; // Default to current position
+    
+    if (gridElement && typeof window !== 'undefined') {
+      // Get the grid's dimensions
+      const rect = gridElement.getBoundingClientRect();
+      const gridWidth = rect.width;
+      
+      // Calculate the absolute position within the grid
+      const relativeX = clientX - rect.left;
+      
+      // Calculate which column (day) this position corresponds to
+      const dayIndex = Math.floor(relativeX / (gridWidth / 7));
+      
+      // Constrain to valid column range (0-6)
+      const constrainedDayIndex = Math.max(0, Math.min(6, dayIndex));
+      
+      // Convert back to percentage position
+      newLeft = constrainedDayIndex * (100 / 7);
+    } else {
+      // Fallback if we can't get the grid dimensions
+      // Calculate based on the current column and delta
+      const columnWidth = 100 / 7; // % width of each day column
+      const estimatedDelta = (deltaX / document.documentElement.clientWidth) * 100;
+      const estimatedNewPosition = draggedEvent.left + estimatedDelta;
+      const newColumn = Math.floor(estimatedNewPosition / columnWidth);
+      newLeft = Math.max(0, Math.min(6, newColumn)) * columnWidth;
+    }
+    
+    console.log(`Dragging event:
+      - Raw delta: X=${deltaX}, Y=${deltaY}
+      - Snapped position: top=${snappedTop}, left=${newLeft}%
+      - Column: ${Math.round(newLeft / (100/7))}
+      - Time: ${Math.floor(snappedTop / hourHeight)}:${Math.round((snappedTop % hourHeight) / pixelsPerMinute)}`);
+    
+    // Update temporary position for visual feedback
+    setTemporaryEventPosition({
+      top: snappedTop,
+      left: newLeft
+    });
+    
+    // Also update the snapped position for use in finishDragEvent
+    setSnappedPosition({
+      top: snappedTop,
+      left: newLeft,
+      width: draggedEvent.width,
+      height: draggedEvent.height
+    });
   };
 
   // Add global event handlers for dragging
@@ -986,30 +1181,80 @@ export default function GoogleCalendar({ onTodoDrop }: { onTodoDrop?: (todoItem:
         }
       };
       
-      // Add event listeners
+      // Add global event listeners
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleMouseUp);
       
-      // Clean up
       return () => {
         document.removeEventListener('mousemove', handleMouseMove);
         document.removeEventListener('mouseup', handleMouseUp);
       };
     }
-  }, [isDraggingEvent, isEventResizing, draggedEvent, dragStartY, dragStartX, dragOffsetY, temporaryEventPosition]);
+  }, [
+    isDraggingEvent, 
+    isEventResizing, 
+    draggedEvent, 
+    dragStartY, 
+    dragStartX, 
+    dragOffsetY, 
+    temporaryEventPosition,
+    resizeData, 
+    temporaryEventHeight, 
+    originalEventHeight,
+  ]);
+
+  // Keep just the useEffect that updates positioned events
+  useEffect(() => {
+    // Update positioned events when events change
+    const positioned = getPositionedEvents();
+    setPositionedEvents(positioned);
+  }, [events, currentWeek]);
+
+  // Add this at the component level to track state changes
+  useEffect(() => {
+    console.log("Drag state changed:", { isDraggingEvent, draggedEvent: draggedEvent?.id });
+  }, [isDraggingEvent, draggedEvent]);
+
+  useEffect(() => {
+    console.log("Resize state changed:", { isEventResizing, editingEvent: editingEvent?.id });
+  }, [isEventResizing, editingEvent]);
+
+  // Add this function to handle background clicks
+  const handleBackgroundClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    // If we have an editing event and the click target is not an event element
+    if (editingEvent && e.target instanceof HTMLElement) {
+      // Check if the click was on an event or inside the editing panel
+      const clickedOnEvent = e.target.closest('.calendar-event');
+      const clickedOnPanel = e.target.closest('.event-editing-panel');
+      
+      // If click was not on an event and not in the editing panel, close the panel
+      if (!clickedOnEvent && !clickedOnPanel) {
+        setEditingEvent(null);
+        if (showDeleteConfirm) {
+          setShowDeleteConfirm(false);
+        }
+      }
+    }
+  };
 
   // Only show on desktop platforms
   if (Platform.OS !== 'web') {
     return null;
   }
 
-  const positionedEvents = getPositionedEvents();
   const timeSlots = getTimeSlots();
 
   // Custom style with dynamic height
   const timeGridStyle = {
     ...styles.timeGrid,
     height: timeSlots.length * 60
+  };
+
+  // When setting up the editing state, ensure default value is empty string
+  const setEventForEditing = (event: CalendarEvent) => {
+    setEditingEvent(event);
+    setEditEventText(event.summary || ''); // Add fallback to empty string
+    setShowDeleteConfirm(false);
   };
 
   // While the redirect URI is being set up
@@ -1068,7 +1313,13 @@ export default function GoogleCalendar({ onTodoDrop }: { onTodoDrop?: (todoItem:
       </View>
       
       {/* Always show the calendar, even during initial loading */}
-      <View style={styles.calendarWrapper}>
+      <View 
+        style={styles.calendarWrapper}
+        {...(Platform.OS === 'web' ? {
+          // @ts-ignore - Web-only prop
+          onClick: handleBackgroundClick
+        } : {})}
+      >
         {/* Time zones row */}
         <View style={styles.timeZoneRow}>
           <View style={styles.timeColumnHeader} />
@@ -1229,23 +1480,85 @@ export default function GoogleCalendar({ onTodoDrop }: { onTodoDrop?: (todoItem:
                 </View>
               )}
               
-              {/* Ghost element */}
-              {isDraggingEvent && draggedEvent && (
+              {/* Ghost element - ONLY show during resize operations */}
+              {isEventResizing && !isDraggingEvent && resizeGhostPosition && editingEvent && (
                 <View
-                  id="event-ghost"
                   style={[
-                    styles.eventGhost,
+                    styles.event,
+                    styles.ghostEvent,
                     {
-                      top: snappedPosition.top,
-                      height: snappedPosition.height,
-                      left: `${snappedPosition.left}%`,
-                      width: `${(draggedEvent.columnSpan * (100 / 7)) - 1}%`,
-                      borderLeftColor: getEventColor(draggedEvent.colorId),
-                      borderLeftWidth: 4,
-                      opacity: 1 // Use opacity: 1 to ensure visibility
+                      position: 'absolute',
+                      top: resizeGhostPosition.top,
+                      height: resizeGhostPosition.height,
+                      left: `${resizeGhostPosition.left}%`,
+                      width: `${resizeGhostPosition.width}%`,
+                      backgroundColor: 'rgba(100, 150, 255, 0.3)',
+                      borderColor: 'rgba(100, 150, 255, 0.8)',
+                      borderWidth: 2,
+                      borderStyle: 'dashed',
+                      zIndex: 10,
+                      pointerEvents: 'none' as any,
                     }
                   ]}
-                />
+                >
+                  <ThemedText style={styles.ghostText}>
+                    {editingEvent.summary} • {formatEventTime(editingEvent.start.dateTime)} - 
+                    {formatEventTime(
+                      editingEvent.end.dateTime 
+                        ? new Date(
+                            new Date(editingEvent.end.dateTime).getTime() + 
+                            (resizeData.additionalHours * 60 * 60 * 1000)
+                          ).toISOString()
+                        : undefined
+                    )}
+                  </ThemedText>
+                </View>
+              )}
+              
+              {/* Dragging ghost - Update to show time info */}
+              {isDraggingEvent && draggedEvent && (
+                <View
+                  style={[
+                    styles.event,
+                    styles.dragGhost,
+                    {
+                      position: 'absolute',
+                      top: temporaryEventPosition.top,
+                      height: draggedEvent.height,
+                      left: `${temporaryEventPosition.left}%`,
+                      width: `${draggedEvent.width}%`,
+                      backgroundColor: 'rgba(100, 180, 100, 0.3)', 
+                      borderColor: 'rgba(100, 180, 100, 0.8)',
+                      borderWidth: 2,
+                      borderStyle: 'dashed',
+                      borderLeftWidth: 4,
+                      borderLeftColor: getEventColor(draggedEvent.colorId),
+                      zIndex: 10,
+                      pointerEvents: 'none' as any,
+                    }
+                  ]}
+                >
+                  <ThemedText style={styles.ghostText}>
+                    {draggedEvent.summary || 'Untitled Event'} • {(() => {
+                      // Calculate the new day of week
+                      const newDayIndex = Math.floor(temporaryEventPosition.left / (100/7));
+                      const newDayName = currentWeek[newDayIndex]?.toLocaleDateString('en-US', { weekday: 'short' }) || '';
+                      
+                      // Calculate new time based on vertical position
+                      const hourHeight = 60;
+                      const startHour = Math.floor(temporaryEventPosition.top / hourHeight);
+                      const startMinute = Math.round((temporaryEventPosition.top % hourHeight) / (hourHeight/60) / 15) * 15;
+                      
+                      const endHour = Math.floor((temporaryEventPosition.top + draggedEvent.height) / hourHeight);
+                      const endMinute = Math.round(((temporaryEventPosition.top + draggedEvent.height) % hourHeight) / (hourHeight/60) / 15) * 15;
+                      
+                      const startTime = `${startHour % 12 || 12}:${startMinute.toString().padStart(2, '0')}${startHour >= 12 ? 'p' : 'a'}`;
+                      const endTime = `${endHour % 12 || 12}:${endMinute.toString().padStart(2, '0')}${endHour >= 12 ? 'p' : 'a'}`;
+                      
+                      return `${newDayName} ${startTime}-${endTime}`;
+                    })()}
+                  </ThemedText>
+                </View>
               )}
               
               {/* Events */}
@@ -1254,7 +1567,7 @@ export default function GoogleCalendar({ onTodoDrop }: { onTodoDrop?: (todoItem:
                 const leftPercentage = event.column * (100 / 7);
                 const widthPercentage = (event.columnSpan * (100 / 7)) - 1;
                 
-                const isBeingEdited = editingEvent?.id === event.id;
+                const isSelected = editingEvent?.id === event.id;
                 const isBeingResized = isEventResizing && editingEvent?.id === event.id;
                 const isBeingDragged = isDraggingEvent && draggedEvent?.id === event.id;
                 
@@ -1267,8 +1580,10 @@ export default function GoogleCalendar({ onTodoDrop }: { onTodoDrop?: (todoItem:
                   <View
                     id={`event-${event.id}`}
                     key={event.id}
+                    className="calendar-event"
                     style={[
                       styles.event,
+                      isSelected && styles.selectedEvent,
                       {
                         top: displayTop,
                         height: displayHeight,
@@ -1277,107 +1592,80 @@ export default function GoogleCalendar({ onTodoDrop }: { onTodoDrop?: (todoItem:
                         backgroundColor: getEventBgColor(event.colorId),
                         borderLeftColor: getEventColor(event.colorId),
                         borderLeftWidth: 4,
-                        zIndex: isBeingEdited || isBeingDragged ? 5 : 2,
-                        cursor: isBeingDragged ? 'grabbing' : 'grab', // Show grabbing cursor while dragging
-                        opacity: isBeingDragged ? 0.8 : 1, // Make it slightly transparent while dragging
+                        zIndex: isSelected || isBeingDragged ? 5 : 2,
+                        cursor: isBeingDragged ? 'grabbing' as any : 'grab' as any,
+                        opacity: isBeingDragged ? 0.8 : 1,
                       }
                     ]}
                   >
-                    {isBeingEdited && editingEvent === event ? (
-                      <>
-                        <TextInput
-                          value={editEventText}
-                          onChangeText={setEditEventText}
-                          style={styles.eventTitleInput}
-                          autoFocus
-                          onBlur={() => {
-                            if (editEventText.trim() !== event.summary) {
-                              updateEvent(event.id, { summary: editEventText });
-                            } else {
-                              setEditingEvent(null);
-                            }
-                          }}
-                          onSubmitEditing={() => {
-                            updateEvent(event.id, { summary: editEventText });
-                          }}
-                        />
-                        <View style={styles.eventActions}>
-                          <TouchableOpacity 
-                            style={styles.eventAction}
-                            onPress={() => setShowDeleteConfirm(true)}
-                          >
-                            <ThemedText style={styles.eventActionText}>Delete</ThemedText>
-                          </TouchableOpacity>
-                          <TouchableOpacity 
-                            style={styles.eventAction}
-                            onPress={() => {
-                              setEditingEvent(null);
-                              setEditEventText('');
-                            }}
-                          >
-                            <ThemedText style={styles.eventActionText}>Cancel</ThemedText>
-                          </TouchableOpacity>
-                        </View>
-                        {showDeleteConfirm && (
-                          <View style={styles.deleteConfirm}>
-                            <ThemedText style={styles.deleteConfirmText}>
-                              Delete this event?
-                            </ThemedText>
-                            <View style={styles.deleteConfirmButtons}>
-                              <TouchableOpacity 
-                                style={styles.deleteButton}
-                                onPress={() => deleteEvent(event.id)}
-                              >
-                                <ThemedText style={styles.deleteButtonText}>Yes</ThemedText>
-                              </TouchableOpacity>
-                              <TouchableOpacity 
-                                style={styles.cancelButton}
-                                onPress={() => setShowDeleteConfirm(false)}
-                              >
-                                <ThemedText style={styles.cancelButtonText}>No</ThemedText>
-                              </TouchableOpacity>
-                            </View>
-                          </View>
-                        )}
-                      </>
-                    ) : (
-                      <>
-                        <TouchableOpacity 
-                          onPress={() => {
-                            setEditingEvent(event);
-                            setEditEventText(event.summary);
-                            setShowDeleteConfirm(false);
-                          }}
-                          onMouseDown={(e) => {
-                            // Only start dragging if not in edit mode
-                            if (!isBeingEdited && !isBeingResized) {
-                              e.preventDefault(); // Prevent text selection during drag
-                              startDragEvent(event, e.nativeEvent.clientX, e.nativeEvent.clientY);
-                            }
-                          }}
-                          style={[
-                            styles.eventTitleContainer,
-                            { cursor: 'grab' } // Change cursor to indicate draggable
-                          ]}
-                        >
-                          <ThemedText style={styles.eventTitle} numberOfLines={1}>
-                            {event.summary}
-                          </ThemedText>
-                        </TouchableOpacity>
-                        <ThemedText style={styles.eventTime} numberOfLines={1}>
-                          {formatEventTime(event.start.dateTime)} - {formatEventTime(event.end.dateTime)}
-                        </ThemedText>
-                        {/* Resize handle, unchanged */}
-                        <View 
-                          style={styles.resizeHandle}
-                          onTouchStart={(e) => startResizeEvent(event, e.nativeEvent.pageY)}
-                          onMouseDown={(e) => {
-                            e.stopPropagation(); // Prevent triggering drag when resizing
-                            startResizeEvent(event, e.nativeEvent.clientY);
-                          }}
-                        />
-                      </>
-                    )}
+                    <TouchableOpacity 
+                      style={styles.eventContent}
+                      onPress={() => {
+                        // Only select the event if we're not dragging or resizing
+                        if (!isDraggingEvent && !isEventResizing) {
+                          setEditingEvent(event);
+                          setEditEventText(event.summary || '');
+                          setShowDeleteConfirm(false);
+                        }
+                      }}
+                      // Use a direct DOM event handler that won't interfere with React Native's gesture system
+                      {...(Platform.OS === 'web' ? {
+                        // @ts-ignore - Web-only prop
+                        onMouseDown: (e: any) => {
+                          // Prevent this from interfering with resize
+                          if (e.target.closest('.resize-handle')) {
+                            return;
+                          }
+                          
+                          // Start drag operation
+                          e.preventDefault(); // Prevent text selection
+                          e.stopPropagation(); // Stop event bubbling
+                          startDragEvent(event, e.clientX, e.clientY);
+                        }
+                      } : {
+                        // Mobile fallback
+                        onLongPress: () => startDragEvent(event, 0, 0)
+                      })}
+                    >
+                      <ThemedText 
+                        style={[
+                          styles.eventTitle, 
+                          isSelected && styles.selectedEventTitle
+                        ]} 
+                        numberOfLines={1}
+                      >
+                        {event.summary}
+                      </ThemedText>
+                      <ThemedText style={styles.eventTime} numberOfLines={1}>
+                        {formatEventTime(event.start.dateTime)} - {formatEventTime(event.end.dateTime)}
+                      </ThemedText>
+                    </TouchableOpacity>
+                    
+                    {/* Update the resize handle to have a specific className for targeting */}
+                    <View 
+                      className="resize-handle"
+                      style={{
+                        position: 'absolute',
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        height: 8,
+                        backgroundColor: 'rgba(255, 255, 255, 0.3)',
+                        cursor: 'ns-resize' as any
+                      }}
+                      {...(Platform.OS === 'web' ? {
+                        // @ts-ignore - Web-only prop
+                        onMouseDown: (e: any) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          startResizeEvent(event, e.clientY);
+                        }
+                      } : {
+                        onTouchStart: (e: any) => {
+                          startResizeEvent(event, e.nativeEvent.pageY);
+                        }
+                      })}
+                    />
                   </View>
                 );
               })}
@@ -1394,6 +1682,145 @@ export default function GoogleCalendar({ onTodoDrop }: { onTodoDrop?: (todoItem:
       )}
       
       {error && <ThemedText style={styles.errorText}>{error}</ThemedText>}
+
+      {/* Event Editing Panel */}
+      <ThemedView 
+        ref={editingPanelRef}
+        style={styles.eventEditingPanel}
+        className="event-editing-panel"
+      >
+        {editingEvent ? (
+          <View style={styles.editingPanelContent}>            
+            <View style={styles.editingPanelBody}>
+              <View style={styles.editField}>
+                <ThemedText style={styles.editFieldLabel}>Title</ThemedText>
+                <TextInput
+                  value={editEventText}
+                  onChangeText={setEditEventText}
+                  style={styles.editTitleInput}
+                  placeholder="Event title"
+                  {...(Platform.OS === 'web' ? {
+                    // @ts-ignore - Web-only prop
+                    onKeyPress: (e: any) => {
+                      if (e.key === 'Enter' || e.keyCode === 13) {
+                        // Prevent form submission if in a form
+                        e.preventDefault();
+                        
+                        // Only save if the text has changed
+                        if (editEventText.trim() !== editingEvent.summary) {
+                          updateEvent(editingEvent.id, { summary: editEventText })
+                            .then(() => {
+                              // Update local state
+                              setEvents(prevEvents => 
+                                prevEvents.map(evt => 
+                                  evt.id === editingEvent.id 
+                                    ? { ...evt, summary: editEventText }
+                                    : evt
+                                )
+                              );
+                              
+                              // Optionally close the panel after save
+                              // setEditingEvent(null);
+                            });
+                        }
+                      }
+                    }
+                  } : {})}
+                />
+              </View>
+              
+              <View style={styles.editField}>
+                <ThemedText style={styles.editFieldLabel}>Time</ThemedText>
+                <ThemedText style={styles.editFieldValue}>
+                  {editingEvent.start?.dateTime && formatEventTime(editingEvent.start.dateTime)} - 
+                  {editingEvent.end?.dateTime && formatEventTime(editingEvent.end.dateTime)}
+                </ThemedText>
+              </View>
+              
+              <View style={styles.editActions}>
+                <TouchableOpacity 
+                  style={styles.saveButton}
+                  onPress={() => {
+                    if (editEventText.trim() !== editingEvent.summary) {
+                      updateEvent(editingEvent.id, { summary: editEventText })
+                        .then(() => {
+                          // Update local state
+                          setEvents(prevEvents => 
+                            prevEvents.map(evt => 
+                              evt.id === editingEvent.id 
+                                ? { ...evt, summary: editEventText }
+                                : evt
+                            )
+                          );
+                        });
+                    }
+                    // Don't close panel here - let user click away to close it
+                  }}
+                >
+                  <ThemedText style={styles.saveButtonText}>Save</ThemedText>
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  style={styles.editingDeleteButton}
+                  onPress={() => setShowDeleteConfirm(true)}
+                >
+                  <ThemedText style={styles.editingDeleteButtonText}>Delete</ThemedText>
+                </TouchableOpacity>
+              </View>
+              
+              {showDeleteConfirm && (
+                <View style={styles.editingDeleteConfirmContainer}>
+                  <ThemedText style={styles.editingDeleteConfirmText}>
+                    Are you sure you want to delete this event?
+                  </ThemedText>
+                  <View style={styles.editingDeleteConfirmButtons}>
+                    <TouchableOpacity 
+                      style={styles.confirmDeleteButton}
+                      onPress={() => {
+                        deleteEvent(editingEvent.id);
+                        // Deletion will close the panel when complete
+                      }}
+                    >
+                      <ThemedText style={styles.confirmDeleteText}>Delete</ThemedText>
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                      style={styles.cancelDeleteButton}
+                      onPress={() => setShowDeleteConfirm(false)}
+                    >
+                      <ThemedText style={styles.cancelDeleteText}>Cancel</ThemedText>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+            </View>
+          </View>
+        ) : (
+          <ThemedText style={styles.noEventSelectedText}>
+            Select an event to edit its details
+          </ThemedText>
+        )}
+      </ThemedView>
+
+      {/* On the main calendar container, add this overlay when editing */}
+      {editingEvent && Platform.OS === 'web' && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 250, // Match the height of the editing panel
+            zIndex: 4, // Above events but below the editing panel
+            backgroundColor: 'transparent', // Transparent overlay
+          }}
+          onClick={() => {
+            setEditingEvent(null);
+            if (showDeleteConfirm) {
+              setShowDeleteConfirm(false);
+            }
+          }}
+        />
+      )}
     </ThemedView>
   );
 }
@@ -1821,5 +2248,161 @@ const styles = StyleSheet.create({
     color: '#4285F4',
     padding: 3,
     paddingLeft: 6,
+  },
+  ghostEvent: {
+    backgroundColor: 'rgba(100, 150, 255, 0.3)',
+    borderWidth: 2,
+    borderStyle: 'dashed' as any,
+    borderColor: 'rgba(100, 150, 255, 0.8)',
+    pointerEvents: 'none' as any,
+  },
+  snapLine: {
+    position: 'absolute',
+    left: 50,
+    right: 0,
+    height: 1,
+    backgroundColor: 'rgba(200, 200, 200, 0.3)',
+    zIndex: 1,
+  },
+  eventEditingPanel: {
+    height: 250, // Fixed height for the editing panel
+    borderTopWidth: 1,
+    borderTopColor: '#ddd',
+    backgroundColor: 'rgba(250, 250, 250, 0.97)',
+    padding: 15,
+    width: '100%',
+  },
+  editingPanelContent: {
+    flex: 1,
+  },
+  editingPanelHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  editingPanelTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  closeButton: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#f0f0f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  closeButtonText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginTop: -2,
+  },
+  editingPanelBody: {
+    flex: 1,
+  },
+  editField: {
+    marginBottom: 10,
+  },
+  editFieldLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+    marginBottom: 3,
+    color: '#555',
+  },
+  editTitleInput: {
+    height: 36,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 4,
+    paddingHorizontal: 10,
+    backgroundColor: 'white',
+  },
+  editFieldValue: {
+    fontSize: 14,
+  },
+  editActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-start',
+    marginTop: 10,
+  },
+  saveButton: {
+    backgroundColor: '#4285F4',
+    paddingVertical: 8,
+    paddingHorizontal: 15,
+    borderRadius: 4,
+    marginRight: 10,
+  },
+  saveButtonText: {
+    color: 'white',
+    fontWeight: '500',
+  },
+  editingDeleteButton: {
+    backgroundColor: '#EF5350',
+    paddingVertical: 8,
+    paddingHorizontal: 15,
+    borderRadius: 4,
+  },
+  editingDeleteButtonText: {
+    color: 'white',
+    fontWeight: '500',
+  },
+  editingDeleteConfirmContainer: {
+    marginTop: 10,
+    padding: 10,
+    backgroundColor: 'rgba(255, 235, 235, 0.9)',
+    borderRadius: 4,
+  },
+  editingDeleteConfirmText: {
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  editingDeleteConfirmButtons: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+  },
+  confirmDeleteButton: {
+    backgroundColor: '#EF5350',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 4,
+    marginRight: 10,
+  },
+  confirmDeleteText: {
+    color: 'white',
+    fontWeight: '500',
+  },
+  cancelDeleteButton: {
+    backgroundColor: '#9e9e9e',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 4,
+  },
+  cancelDeleteText: {
+    color: 'white',
+    fontWeight: '500',
+  },
+  noEventSelectedText: {
+    textAlign: 'center',
+    color: '#888',
+    fontStyle: 'italic',
+  },
+  selectedEvent: {
+    boxShadow: '0 0 0 2px rgba(66, 133, 244, 0.8)',
+    zIndex: 3,
+  },
+  selectedEventTitle: {
+    fontWeight: '500',
+  },
+  eventContent: {
+    flex: 1,
+    padding: 4,
+  },
+  dragGhost: {
+    backgroundColor: 'rgba(100, 180, 100, 0.3)',
+    borderWidth: 2,
+    borderStyle: 'dashed' as any,
+    borderColor: 'rgba(100, 180, 100, 0.8)',
+    pointerEvents: 'none' as any,
   },
 }); 
