@@ -97,6 +97,8 @@ export default function HomeScreen() {
   const [draggedTodo, setDraggedTodo] = useState<TodoItem | null>(null);
   const [dragPosition, setDragPosition] = useState<{x: number, y: number} | null>(null);
 
+  const [pressedColorBarId, setPressedColorBarId] = useState<string | null>(null);
+
   const tagOptions: TagOption[] = [
     {
       id: 'due_today',
@@ -705,6 +707,25 @@ export default function HomeScreen() {
     handleUpdateDueDate(todoId, newDate);
   };
 
+  // First, add this function to determine the color based on todo status
+  const getTodoBarColor = (todo: TodoItem): string => {
+    if (todo.is_on_calendar) {
+      return '#4285F4'; // Blue for calendar items
+    } else if (todo.completed) {
+      return '#34A853'; // Green for completed todos
+    } else if (todo.due_date && new Date(todo.due_date) < new Date()) {
+      return '#EA4335'; // Red for overdue todos
+    } else if (todo.due_date && new Date(todo.due_date).toDateString() === new Date().toDateString()) {
+      return '#FBBC05'; // Yellow for today's todos
+    } else if (todo.archived) {
+      return '#9AA0A6'; // Grey for archived todos
+    } else if (todo.snooze_time) {
+      return '#A142F4'; // Purple for snoozed todos
+    }
+    
+    return '#9575CD'; // Default color
+  };
+
   const renderTodoItem = ({ item, index }: { item: TodoItem, index: number }) => {
     const nextItem = todos[index + 1];
     const prevItem = todos[index - 1];
@@ -792,19 +813,6 @@ export default function HomeScreen() {
                 {item.completed && <ThemedText style={styles.checkmark}>✓</ThemedText>}
               </TouchableOpacity>
               
-              {/* Add a drag handle button for web */}
-              {Platform.OS === 'web' && (
-                <TouchableOpacity 
-                  style={styles.dragHandle}
-                  onPress={() => {
-                    console.log('Starting drag for todo:', item.text);
-                    setDraggedTodo(item);
-                  }}
-                >
-                  <ThemedText>↕️</ThemedText>
-                </TouchableOpacity>
-              )}
-              
               <ThemedView style={styles.todoTextContainer}>
                 {editingTodoId === item.id ? (
                   <TextInput
@@ -888,6 +896,16 @@ export default function HomeScreen() {
                   <CalendarIcon date={item.due_date ? new Date(item.due_date) : undefined} />
                 </TouchableOpacity>
               </ThemedView>
+              <TouchableOpacity 
+                style={[
+                  styles.todoColorBar,
+                  { backgroundColor: getTodoBarColor(item) },
+                  pressedColorBarId === item.id && styles.todoColorBarPressed
+                ]}
+                onPress={() => setDraggedTodo(item)}
+                onPressIn={() => setPressedColorBarId(item.id)}
+                onPressOut={() => setPressedColorBarId(null)}
+              />
             </ThemedView>
           </TouchableWithoutFeedback>
         </Swipeable>
@@ -1581,5 +1599,17 @@ const styles = StyleSheet.create({
     ...(Platform.OS === 'web' ? {
       cursor: 'grab' as any,
     } : {}),
+  },
+  todoColorBar: {
+    width: 6,
+    alignSelf: 'stretch',
+    borderTopRightRadius: 0,
+    borderBottomRightRadius: 0,
+    marginLeft: 4,
+    marginRight: -8,
+  },
+  todoColorBarPressed: {
+    opacity: 0.7,
+    width: 10, // Make it slightly wider when pressed for visual feedback
   },
 });
