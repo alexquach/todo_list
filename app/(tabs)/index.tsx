@@ -1,4 +1,4 @@
-import { StyleSheet, TextInput, TouchableOpacity, FlatList, Animated, Platform, RefreshControl, KeyboardAvoidingView, Keyboard, View } from 'react-native';
+import { StyleSheet, TextInput, TouchableOpacity, FlatList, Animated, Platform, RefreshControl, KeyboardAvoidingView, Keyboard, View, TouchableWithoutFeedback } from 'react-native';
 import { useState, useEffect, useRef } from 'react';
 import { Swipeable, GestureHandlerRootView } from 'react-native-gesture-handler';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -25,6 +25,7 @@ interface TodoItem {
   created_at: string;
   archived: boolean;
   snooze_time: string | null;
+  is_on_calendar?: boolean;
 }
 
 interface DatePickerPosition {
@@ -93,6 +94,9 @@ export default function HomeScreen() {
   const [autoSnooze, setAutoSnooze] = useState(false);
   
   const [showSettings, setShowSettings] = useState(false);
+  const [draggedTodo, setDraggedTodo] = useState<TodoItem | null>(null);
+  const [dragPosition, setDragPosition] = useState<{x: number, y: number} | null>(null);
+
   const tagOptions: TagOption[] = [
     {
       id: 'due_today',
@@ -363,7 +367,8 @@ export default function HomeScreen() {
         due_date: autoSetDueDate ? standardizeDate(today) : null,
         created_at: standardizeDate(new Date()),
         archived: autoArchive,
-        snooze_time: autoSnooze ? standardizeDate(autoSnoozeDate) : null
+        snooze_time: autoSnooze ? standardizeDate(autoSnoozeDate) : null,
+        is_on_calendar: false,
       };
       
       try {
@@ -660,13 +665,44 @@ export default function HomeScreen() {
     }
   };
 
-  const handleTodoDrop = (todoItem: any, date: Date) => {
+  const clearDraggedTodo = () => {
+    setDraggedTodo(null);
+    setDragPosition(null);
+  };
+
+  const handleTodoDrop = async (todoItem: TodoItem, date: Date) => {
+    console.log('Todo dropped on calendar:', todoItem.text, 'at date:', date);
+    
     try {
-      const parsedTodo = typeof todoItem === 'string' ? JSON.parse(todoItem) : todoItem;
-      handleUpdateDueDate(parsedTodo.id, date);
+      // Update the todo's due date
+      await handleUpdateDueDate(todoItem.id, date);
+      
+      // Also mark the todo as being on the calendar
+      const { error } = await supabase
+        .from('todos')
+        .update({ is_on_calendar: true })
+        .eq('id', todoItem.id);
+        
+      if (error) {
+        console.error('Error updating todo is_on_calendar status:', error);
+      }
+      
+      // Refresh the todos to show the updated status
+      fetchTodos();
     } catch (error) {
       console.error('Error handling todo drop:', error);
     }
+    
+    // Clear the dragged todo
+    clearDraggedTodo();
+  };
+
+  // Add this function to handle todo due date updates when events are moved
+  const handleTodoEventMoved = (todoId: string, newDate: Date) => {
+    console.log('Calendar event moved, updating todo:', todoId, 'to date:', newDate);
+    
+    // Update the todo item's due date
+    handleUpdateDueDate(todoId, newDate);
   };
 
   const renderTodoItem = ({ item, index }: { item: TodoItem, index: number }) => {
@@ -725,15 +761,13 @@ export default function HomeScreen() {
       <>
         <Swipeable
           renderRightActions={(dragX) => renderRightActions(dragX, item)}
-          friction={2}
-          rightThreshold={40}
-          onSwipeableOpen={() => {
-            if (Platform.OS !== 'web') {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          onSwipeableOpen={(direction) => {
+            if (direction === 'right') {
+              // existing code...
             }
           }}
         >
-          <TouchableOpacity
+          <TouchableWithoutFeedback
             disabled={!tagMode}
             style={[
               styles.todoItemTouchable,
@@ -742,12 +776,7 @@ export default function HomeScreen() {
             {...itemProps}
           >
             <ThemedView 
-              onLayout={(event) => {
-                const { height } = event.nativeEvent.layout;
-                if (height > 0 && height !== itemHeight) {
-                  setItemHeight(height);
-                }
-              }}
+              data-todo-id={item.id}
               style={[
                 styles.todoItem,
                 isFirstInGroup && styles.firstInGroup,
@@ -762,6 +791,20 @@ export default function HomeScreen() {
               >
                 {item.completed && <ThemedText style={styles.checkmark}>✓</ThemedText>}
               </TouchableOpacity>
+              
+              {/* Add a drag handle button for web */}
+              {Platform.OS === 'web' && (
+                <TouchableOpacity 
+                  style={styles.dragHandle}
+                  onPress={() => {
+                    console.log('Starting drag for todo:', item.text);
+                    setDraggedTodo(item);
+                  }}
+                >
+                  <ThemedText>↕️</ThemedText>
+                </TouchableOpacity>
+              )}
+              
               <ThemedView style={styles.todoTextContainer}>
                 {editingTodoId === item.id ? (
                   <TextInput
@@ -835,6 +878,9 @@ export default function HomeScreen() {
                 {item.snooze_time && (
                   <ThemedText style={styles.metaIcon}>💤</ThemedText>
                 )}
+                {item.is_on_calendar && (
+                  <ThemedText style={styles.metaIcon}>📅</ThemedText>
+                )}
                 <TouchableOpacity 
                   style={styles.calendarButton}
                   onPress={(event) => showDatePickerAtPosition(event, item.id)}
@@ -843,7 +889,7 @@ export default function HomeScreen() {
                 </TouchableOpacity>
               </ThemedView>
             </ThemedView>
-          </TouchableOpacity>
+          </TouchableWithoutFeedback>
         </Swipeable>
         {Array.from({ length: getWeekBoundaryCount() }, (_, i) => (
           <ThemedView key={`divider-${item.id}-${i}`} style={styles.weekDivider} />
@@ -1043,7 +1089,12 @@ export default function HomeScreen() {
               
               {Platform.OS === 'web' && (
                 <ThemedView style={styles.calendarContainer}>
-                  <GoogleCalendar onTodoDrop={handleTodoDrop} />
+                  <GoogleCalendar 
+                    onTodoDrop={handleTodoDrop}
+                    draggedTodo={draggedTodo}
+                    clearDraggedTodo={clearDraggedTodo}
+                    onTodoEventMoved={handleTodoEventMoved}
+                  />
                 </ThemedView>
               )}
             </ThemedView>
@@ -1521,5 +1572,14 @@ const styles = StyleSheet.create({
     color: '#888',
     textAlign: 'center',
     marginTop: 20,
+  },
+  dragHandle: {
+    padding: 6,
+    marginRight: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    ...(Platform.OS === 'web' ? {
+      cursor: 'grab' as any,
+    } : {}),
   },
 });

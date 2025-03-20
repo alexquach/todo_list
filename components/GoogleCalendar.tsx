@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, View, Platform, ScrollView, TouchableOpacity, TextInput } from 'react-native';
 import { WebView } from 'react-native-webview';
 import * as WebBrowser from 'expo-web-browser';
@@ -53,6 +53,12 @@ interface CalendarEvent {
     date?: string;
   };
   colorId?: string;
+  extendedProperties?: {
+    private?: {
+      todoId?: string;
+      isTodoEvent?: string;
+    };
+  };
 }
 
 type GroupedEvents = {
@@ -119,7 +125,81 @@ interface GroupedAllDayEvents {
 // We need to define the number of time slots statically for styles
 const TIME_SLOTS_COUNT = 24; // Full 24 hours
 
-export default function GoogleCalendar({ onTodoDrop }: { onTodoDrop?: (todoItem: any, date: Date) => void }) {
+// Add this constant at the top with other constants
+const HEADER_HEIGHT = 60; // Adjust this value to match your header height
+
+// First, update the component interface to handle the draggedTodo
+interface GoogleCalendarProps {
+  onTodoDrop?: (todoItem: any, date: Date) => void;
+  draggedTodo?: TodoItem | null;
+  clearDraggedTodo?: () => void;
+  onTodoEventMoved?: (todoId: string, newDate: Date) => void; // Add this new prop
+}
+
+// Add this near the top of your file with the other interfaces
+interface TodoItem {
+  id: string;
+  text: string;
+  completed: boolean;
+  completed_at: string | null;
+  due_date: string | null;
+  created_at: string;
+  archived: boolean;
+  snooze_time: string | null;
+}
+
+// Add this EVENT_COLORS constant outside the component
+// These should match Google Calendar's color IDs
+const EVENT_COLORS: Record<string, { primary: string; light: string }> = {
+  '1': { primary: '#4285F4', light: '#4285F4AA' }, // Blue
+  '2': { primary: '#33B679', light: '#33B679AA' }, // Green
+  '3': { primary: '#F4511E', light: '#F4511EAA' }, // Orange
+  '4': { primary: '#8E24AA', light: '#8E24AAAA' }, // Purple
+  '5': { primary: '#E67C73', light: '#E67C73AA' }, // Red
+  '6': { primary: '#F6BF26', light: '#F6BF26AA' }, // Yellow
+  '7': { primary: '#039BE5', light: '#039BE5AA' }, // Light blue
+  '8': { primary: '#616161', light: '#616161AA' }, // Gray
+  '9': { primary: '#3F51B5', light: '#3F51B5AA' }, // Indigo
+  '10': { primary: '#0B8043', light: '#0B8043AA' }, // Dark green
+  '11': { primary: '#D50000', light: '#D50000AA' }, // Dark red
+};
+
+// Move the getEventColor function outside the component
+const getEventColor = (colorId: string | undefined, isAllDay: boolean = false, isTodo: boolean = false) => {
+  if (isTodo) {
+    // Always use blue for todo-sourced events
+    return isAllDay ? '#2196F3AA' : '#2196F3'; // Blue with/without alpha
+  }
+  
+  // Logic for other events
+  if (isAllDay) {
+    return colorId ? EVENT_COLORS[colorId]?.light || '#9575CDAA' : '#9575CDAA';
+  }
+  return colorId ? EVENT_COLORS[colorId]?.primary || '#9575CD' : '#9575CD';
+};
+
+// Update the getEventBgColor function to match 
+const getEventBgColor = (colorId: string | undefined) => {
+  // Use the same color as the border but with very low opacity
+  const baseColor = getEventColor(colorId);
+  
+  // Extract the hex color and convert to RGB with alpha
+  const hex = baseColor.substring(1);
+  const r = parseInt(hex.substr(0, 2), 16);
+  const g = parseInt(hex.substr(2, 2), 16);
+  const b = parseInt(hex.substr(4, 2), 16);
+  
+  // Return the color with 10% opacity for a subtle background
+  // return `rgba(${r}, ${g}, ${b}, 0.2)`;
+  return `rgb(240, 232, 252)`;
+};
+
+export default function GoogleCalendar({
+  onTodoDrop,
+  draggedTodo,
+  clearDraggedTodo,
+  onTodoEventMoved
+}: GoogleCalendarProps) {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [allDayEvents, setAllDayEvents] = useState<CalendarEvent[]>([]);
   const [token, setToken] = useState<string | null>(null);
@@ -150,17 +230,27 @@ export default function GoogleCalendar({ onTodoDrop }: { onTodoDrop?: (todoItem:
     width: 0,
     height: 0 
   });
-  const gridRef = React.useRef<View>(null);
+  const gridRef = useRef<View>(null);
   const [isUpdatingEvent, setIsUpdatingEvent] = useState(false);
   const [todoDropTarget, setTodoDropTarget] = useState<{
     dayIndex: number;
-    timePosition: number;
+    timePosition?: number;
   } | null>(null);
   const [positionedEvents, setPositionedEvents] = useState<PositionedEvent[]>([]);
   const editingPanelRef = React.useRef(null);
   // Add this to your component state variables
   const [isDragThresholdMet, setIsDragThresholdMet] = useState(false);
   const DRAG_THRESHOLD = 5; // Pixels to move before showing ghost preview
+  // Add this to your state variables near the top of your component
+  const [ghostPosition, setGhostPosition] = useState<{
+    top: number;
+    left: number;
+    width: number;
+    verticalPosition: number;
+    dayIndex: number;
+  } | null>(null);
+  // Add this to your state variables
+  const [message, setMessage] = useState<string | null>(null);
 
   // Update current time every minute
   useEffect(() => {
@@ -488,56 +578,72 @@ export default function GoogleCalendar({ onTodoDrop }: { onTodoDrop?: (todoItem:
   };
 
   // Add function to create an event from a todo item
-  const createEventFromTodo = async (todoText: string, dropDate: Date) => {
-    if (!token) return;
-    
+  const createEventFromTodo = async (todoItem: TodoItem, dropDate: Date) => {
+    if (!token) {
+      console.error('No access token available');
+      return;
+    }
+
     try {
-      setIsUpdatingEvent(true);
-      
-      // Create end time (30 mins after drop time)
-      const endTime = new Date(dropDate.getTime() + 30 * 60 * 1000);
-      
-      // Format the event object
-      const newEvent = {
-        summary: todoText,
+      // Create start and end times from the drop date
+      // Default to a 1-hour event
+      const startDateTime = new Date(dropDate);
+      const endDateTime = new Date(dropDate);
+      endDateTime.setHours(endDateTime.getHours() + 1);
+
+      // Format for the API request
+      const startTime = startDateTime.toISOString();
+      const endTime = endDateTime.toISOString();
+
+      // Create the event with a blue color (colorId: 1 is typically blue in Google Calendar)
+      // You might need to adjust the colorId based on your calendar settings
+      const eventData = {
+        summary: todoItem.text,
+        description: `Todo item from your list (ID: ${todoItem.id})`,
         start: {
-          dateTime: dropDate.toISOString(),
+          dateTime: startTime,
           timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
         },
         end: {
-          dateTime: endTime.toISOString(),
+          dateTime: endTime,
           timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+        },
+        colorId: '1', // 1 is typically blue in Google Calendar
+        // You can add a special marker to identify this as a todo-sourced event
+        extendedProperties: {
+          private: {
+            todoId: todoItem.id,
+            isTodoEvent: 'true'
+          }
         }
       };
-      
-      // Send the request to create a new event
+
       const response = await fetch(
         'https://www.googleapis.com/calendar/v3/calendars/primary/events',
         {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json'
           },
-          body: JSON.stringify(newEvent),
+          body: JSON.stringify(eventData)
         }
       );
-      
+
       if (!response.ok) {
-        const responseText = await response.text();
-        throw new Error(`Failed to create event (${response.status}): ${responseText}`);
+        throw new Error(`Failed to create event: ${response.status}`);
       }
+
+      const createdEvent = await response.json();
+      console.log('Created event:', createdEvent);
+
+      // Refresh events list to show the new event
+      fetchEvents(token);
       
-      // Silently refresh events
-      fetchEvents(token, true);
-      
-    } catch (e: unknown) {
-      const errorMessage = e instanceof Error ? e.message : String(e);
-      setError(`Failed to create event: ${errorMessage}`);
-      console.error('Create event error:', e);
-    } finally {
-      setIsUpdatingEvent(false);
-      setTodoDropTarget(null);
+      return createdEvent;
+    } catch (error) {
+      console.error('Error creating event from todo:', error);
+      setError('Failed to create event. Please try again.');
     }
   };
 
@@ -569,7 +675,7 @@ export default function GoogleCalendar({ onTodoDrop }: { onTodoDrop?: (todoItem:
       }
       
       // Create a date for this drop position
-      const days = getDaysOfWeek(startDate);
+      const days = getDaysOfWeek(currentWeek[0]); // Use first day of current week
       const dropDate = new Date(days[dayIndex]);
       
       // If we have a vertical position, use it to set the time
@@ -983,119 +1089,83 @@ export default function GoogleCalendar({ onTodoDrop }: { onTodoDrop?: (todoItem:
 
   // Update finishDragEvent to reset the threshold state
   const finishDragEvent = () => {
-    if (!isDraggingEvent || !draggedEvent) {
-      return;
-    }
-    
-    // Only process the drag if we actually moved beyond the threshold
-    if (isDragThresholdMet) {
-      console.log('Finishing drag operation...');
+    if (draggedEvent && !isUpdatingEvent) {
+      setIsUpdatingEvent(true); // Show loading indicator
       
-      // Calculate what actually changed
-      const oldColumn = draggedEvent.column;
-      const newColumn = Math.round(temporaryEventPosition.left / (100/7));
+      // Calculate the new column (day) from the snapped position percentage
+      const newColumn = Math.round(snappedPosition.left / (100/7));
       
-      const oldTop = draggedEvent.top;
-      const newTop = temporaryEventPosition.top;
+      // Calculate the new start and end times
+      const startDateTime = new Date(currentWeek[newColumn]); // Use newColumn instead of draggedEvent.column
       
-      // Calculate time difference
-      const hourHeight = 60; // Height for one hour in pixels
-      const pixelsPerMinute = hourHeight / 60;
+      // Set hours and minutes based on vertical position
+      const hours = Math.floor(snappedPosition.top / 60);
+      const minutes = Math.round((snappedPosition.top % 60) / 15) * 15; // Snap to 15-min intervals
+      startDateTime.setHours(hours, minutes, 0, 0);
       
-      // Calculate the old time (in minutes since midnight)
-      const oldStartMinutes = oldTop / pixelsPerMinute;
+      // Calculate duration of original event (in minutes)
+      const durationMinutes = draggedEvent.height / 60 * 60;
       
-      // Calculate the new time (in minutes since midnight)
-      const newStartMinutes = newTop / pixelsPerMinute;
+      // Set end time based on duration
+      const endDateTime = new Date(startDateTime);
+      endDateTime.setMinutes(startDateTime.getMinutes() + durationMinutes);
       
-      // Time difference in minutes
-      const minutesDifference = newStartMinutes - oldStartMinutes;
+      // Format the dates for Google Calendar API
+      const formattedStart = startDateTime.toISOString();
+      const formattedEnd = endDateTime.toISOString();
       
-      // Calculate day difference
-      const dayDifference = newColumn - oldColumn;
+      // Check if this is a todo-linked event
+      const isTodo = isTodoEvent(draggedEvent);
+      const todoId = draggedEvent.extendedProperties?.private?.todoId;
       
-      console.log(`Event moved: 
-        - Column change: ${oldColumn} -> ${newColumn} (${dayDifference} days)
-        - Time change: ${Math.floor(oldStartMinutes/60)}:${Math.round(oldStartMinutes%60)} -> ${Math.floor(newStartMinutes/60)}:${Math.round(newStartMinutes%60)} (${minutesDifference} minutes)`);
+      console.log('Updating event:', {
+        id: draggedEvent.id,
+        from: {
+          column: draggedEvent.column,
+          date: new Date(currentWeek[draggedEvent.column]).toDateString(),
+          top: draggedEvent.top
+        },
+        to: {
+          column: newColumn,
+          date: startDateTime.toDateString(),
+          top: snappedPosition.top
+        }
+      });
       
-      // Only update if something changed
-      if (dayDifference !== 0 || Math.abs(minutesDifference) >= 1) {
-        if (!draggedEvent.start.dateTime || !draggedEvent.end.dateTime) {
-          console.error('Event missing dateTime properties');
-          setIsDraggingEvent(false);
-          setDraggedEvent(null);
-          return;
+      // Update the event in Google Calendar
+      updateEvent(draggedEvent.id, {
+        start: {
+          dateTime: formattedStart,
+          timeZone: draggedEvent.start.timeZone
+        },
+        end: {
+          dateTime: formattedEnd,
+          timeZone: draggedEvent.end.timeZone
+        }
+      }).then(() => {
+        console.log('Event updated successfully after drag');
+        
+        // If this is a todo-linked event and we have the callback, update the todo
+        if (isTodo && todoId && onTodoEventMoved) {
+          onTodoEventMoved(todoId, startDateTime);
         }
         
-        // Calculate new start and end times
-        const originalStart = new Date(draggedEvent.start.dateTime);
-        const originalEnd = new Date(draggedEvent.end.dateTime);
-        
-        // Apply time difference (in minutes)
-        const newStart = new Date(originalStart);
-        newStart.setMinutes(originalStart.getMinutes() + minutesDifference);
-        
-        const newEnd = new Date(originalEnd);
-        newEnd.setMinutes(originalEnd.getMinutes() + minutesDifference);
-        
-        // Apply day difference
-        if (dayDifference !== 0) {
-          newStart.setDate(newStart.getDate() + dayDifference);
-          newEnd.setDate(newEnd.getDate() + dayDifference);
+        // Refresh events
+        if (token) {
+          fetchEvents(token, true);
         }
-        
-        // Format for API
-        const formattedStart = newStart.toISOString();
-        const formattedEnd = newEnd.toISOString();
-        
-        console.log(`Updating event times:
-          - Original: ${formatEventTime(draggedEvent.start.dateTime)} - ${formatEventTime(draggedEvent.end.dateTime)}
-          - New: ${formatEventTime(formattedStart)} - ${formatEventTime(formattedEnd)}`);
-        
-        // Update the event in the API
-        updateEvent(draggedEvent.id, {
-          start: {
-            dateTime: formattedStart,
-            timeZone: draggedEvent.start.timeZone
-          },
-          end: {
-            dateTime: formattedEnd,
-            timeZone: draggedEvent.end.timeZone
-          }
-        }).then(() => {
-          console.log('Event updated successfully after drag');
-          
-          // Update the local state to reflect the changes
-          setEvents(prevEvents => 
-            prevEvents.map(event => 
-              event.id === draggedEvent.id 
-                ? {
-                    ...event,
-                    start: {
-                      ...event.start,
-                      dateTime: formattedStart
-                    },
-                    end: {
-                      ...event.end,
-                      dateTime: formattedEnd
-                    }
-                  } 
-                : event
-            )
-          );
-        })
-        .catch(error => {
-          console.error('Failed to update event after drag:', error);
-        });
-      } else {
-        console.log('No significant change detected, skipping API update');
-      }
+      }).catch(error => {
+        console.error('Failed to update event after drag:', error);
+      }).finally(() => {
+        setIsUpdatingEvent(false); // Hide loading indicator
+      });
     }
     
     // Reset drag state
     setIsDraggingEvent(false);
-    setIsDragThresholdMet(false);
     setDraggedEvent(null);
+    setTemporaryEventPosition({ top: 0, left: 0 });
+    setSnappedPosition({ top: 0, left: 0, width: 0, height: 0 });
   };
 
   // Update handleDragMove to include drag threshold check
@@ -1128,13 +1198,13 @@ export default function GoogleCalendar({ onTodoDrop }: { onTodoDrop?: (todoItem:
     const snappedTop = Math.round(rawNewTop / snapPixels) * snapPixels;
     
     // For horizontal position: snap to day columns
-    // Calculate which day column we're over based on percentage widths
     const gridElement = gridRef.current;
     let newLeft = draggedEvent.left; // Default to current position
+    let newColumn = draggedEvent.column; // Track column for logging
     
     if (gridElement && typeof window !== 'undefined') {
       // Get the grid's dimensions
-      const rect = gridElement.getBoundingClientRect();
+      const rect = gridElement.getBoundingClientRect?.() || { top: 0, left: 0, width: 0, height: 0 };
       const gridWidth = rect.width;
       
       // Calculate the absolute position within the grid
@@ -1145,26 +1215,15 @@ export default function GoogleCalendar({ onTodoDrop }: { onTodoDrop?: (todoItem:
       
       // Constrain to valid column range (0-6)
       const constrainedDayIndex = Math.max(0, Math.min(6, dayIndex));
+      newColumn = constrainedDayIndex;
       
       // Convert back to percentage position
       newLeft = constrainedDayIndex * (100 / 7);
-    } else {
-      // Fallback if we can't get the grid dimensions
-      // Calculate based on the current column and delta
-      const columnWidth = 100 / 7; // % width of each day column
-      const estimatedDelta = (deltaX / document.documentElement.clientWidth) * 100;
-      const estimatedNewPosition = draggedEvent.left + estimatedDelta;
-      const newColumn = Math.floor(estimatedNewPosition / columnWidth);
-      newLeft = Math.max(0, Math.min(6, newColumn)) * columnWidth;
-    }
-    
-    // Only log if we're past the threshold
-    if (thresholdMet) {
-      console.log(`Dragging event:
-        - Raw delta: X=${deltaX}, Y=${deltaY}
-        - Snapped position: top=${snappedTop}, left=${newLeft}%
-        - Column: ${Math.round(newLeft / (100/7))}
-        - Time: ${Math.floor(snappedTop / hourHeight)}:${Math.round((snappedTop % hourHeight) / pixelsPerMinute)}`);
+      
+      // Add visual indicator text for the day being dragged to
+      if (thresholdMet && newColumn !== draggedEvent.column) {
+        console.log(`Dragging to ${currentWeek[newColumn].toDateString()} (column ${newColumn})`);
+      }
     }
     
     // Update temporary position for visual feedback
@@ -1305,6 +1364,112 @@ export default function GoogleCalendar({ onTodoDrop }: { onTodoDrop?: (todoItem:
     );
   }
 
+  // Add this to your render function to show the ghost element when dragging
+  const renderDragGhost = () => {
+    if (!draggedTodo || !ghostPosition) return null;
+
+    // Calculate time from position with 15-minute snapping
+    const hours = Math.floor(ghostPosition.verticalPosition / 4); // 4 slots per hour
+    const minutes = (ghostPosition.verticalPosition % 4) * 15;
+    const formattedTime = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+
+    return (
+      <View
+        style={[
+          styles.eventGhost,
+          {
+            top: ghostPosition.top,
+            left: ghostPosition.left,
+            width: ghostPosition.width,
+            height: 60, // Default to 1 hour
+            backgroundColor: 'rgba(76, 175, 80, 0.5)', // Semi-transparent green
+            borderColor: '#4CAF50',
+            borderWidth: 1,
+            borderRadius: 4,
+          },
+        ]}
+      >
+        <ThemedText style={styles.ghostText}>{draggedTodo.text}</ThemedText>
+        <ThemedText style={styles.ghostTime}>{formattedTime}</ThemedText>
+      </View>
+    );
+  };
+
+  // Update the calendar grid mouse move handler
+  const handleGridMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!draggedTodo || !gridRef.current) return;
+    
+    // Use gridRef.current instead of gridElement
+    const gridElement = gridRef.current as any; // Use any to bypass TypeScript check
+    
+    // Get the grid's dimensions - we need to cast to HTMLElement for web APIs
+    const rect = gridElement.getBoundingClientRect?.() || { top: 0, left: 0, width: 0, height: 0 };
+    const dayWidth = rect.width / 7; // 7 days per week
+    const slotHeight = (rect.height - HEADER_HEIGHT) / (24 * 4); // 15-minute slots
+    
+    // Calculate which day column the mouse is over
+    const dayIndex = Math.floor((e.clientX - rect.left) / dayWidth);
+    
+    // Calculate the vertical position in 15-minute slots
+    let verticalPosition = Math.floor((e.clientY - rect.top - HEADER_HEIGHT) / slotHeight);
+    
+    // Ensure the vertical position is valid
+    verticalPosition = Math.max(0, Math.min(24 * 4 - 1, verticalPosition));
+    
+    // Calculate the visual position
+    const top = HEADER_HEIGHT + verticalPosition * slotHeight;
+    const left = dayIndex * dayWidth;
+    
+    // Update the ghost position
+    setGhostPosition({
+      top,
+      left,
+      width: dayWidth,
+      verticalPosition,
+      dayIndex
+    });
+  };
+
+  // Add this function to handle clicks on the calendar grid
+  const handleGridClick = async (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!draggedTodo || !ghostPosition || !onTodoDrop) return;
+    
+    // Create a date object for the clicked position
+    const days = getDaysOfWeek(currentWeek[0]);
+    const clickedDate = new Date(days[ghostPosition.dayIndex]);
+    
+    // Set the hours and minutes based on ghost position
+    const hours = Math.floor(ghostPosition.verticalPosition / 4);
+    const minutes = (ghostPosition.verticalPosition % 4) * 15;
+    clickedDate.setHours(hours, minutes, 0, 0);
+    
+    try {
+      // First create the Google Calendar event
+      const createdEvent = await createEventFromTodo(draggedTodo, clickedDate);
+      
+      if (createdEvent) {
+        // If successful, call the parent component's onTodoDrop function
+        onTodoDrop(draggedTodo, clickedDate);
+        
+        // Show success message (optional)
+        setMessage('Todo added to calendar successfully');
+        setTimeout(() => setMessage(null), 3000); // Clear message after 3 seconds
+      }
+    } catch (error) {
+      console.error('Failed to add todo to calendar:', error);
+      // You might want to show an error message to the user
+    }
+    
+    // Clear the ghost position and dragged todo
+    setGhostPosition(null);
+    if (clearDraggedTodo) clearDraggedTodo();
+  };
+
+  // Add or update this function to check for todo events
+  const isTodoEvent = (event: CalendarEvent): boolean => {
+    return event.extendedProperties?.private?.isTodoEvent === 'true';
+  };
+
   return (
     <ThemedView style={styles.container}>
       {/* Header with Month/Year and Navigation */}
@@ -1396,14 +1561,14 @@ export default function GoogleCalendar({ onTodoDrop }: { onTodoDrop?: (todoItem:
             <ThemedText style={styles.allDayText}>All-day</ThemedText>
           </View>
           <View style={styles.allDayEventsContainer}>
-            {Object.entries(getAllDayEventsByDay()).map(([dayIndex, events]) => 
-              events.map((event, eventIndex) => (
+            {Object.entries(getAllDayEventsByDay()).map(([dayIndex, events]: [string, CalendarEvent[]]) => 
+              events.map((event: CalendarEvent, eventIndex: number) => (
                 <View 
                   key={`allday-${event.id}-${eventIndex}`} 
                   style={[
                     styles.allDayEvent, 
                     { 
-                      backgroundColor: getEventColor(event.colorId, true),
+                      backgroundColor: getEventColor(event.colorId, true, isTodoEvent(event)),
                       left: `${parseInt(dayIndex) * 14.285}%`, 
                       width: '14.285%' 
                     }
@@ -1431,7 +1596,13 @@ export default function GoogleCalendar({ onTodoDrop }: { onTodoDrop?: (todoItem:
             {/* Grid Content */}
             <View 
               ref={gridRef}
-              style={styles.gridContent}
+              style={styles.calendarGrid}
+              {...(Platform.OS === 'web' ? {
+                // @ts-ignore - The following props only exist on web
+                onMouseMove: handleGridMouseMove,
+                onMouseLeave: () => setGhostPosition(null),
+                onClick: handleGridClick
+              } : {})}
             >
               {/* Horizontal hour lines */}
               {timeSlots.map((_, index) => (
@@ -1691,10 +1862,22 @@ export default function GoogleCalendar({ onTodoDrop }: { onTodoDrop?: (todoItem:
                   </View>
                 );
               })}
+              
+              {/* Add the ghost element for drag preview */}
+              {renderDragGhost()}
             </View>
           </View>
         </ScrollView>
       </View>
+      
+      {/* Show drag message when a todo is being dragged */}
+      {draggedTodo && (
+        <View style={styles.dragIndicator}>
+          <ThemedText style={styles.dragIndicatorText}>
+            Drag to place "{draggedTodo.text}" on calendar
+          </ThemedText>
+        </View>
+      )}
       
       {/* For initial loading, you can show a loading overlay */}
       {loading && (
@@ -1707,10 +1890,10 @@ export default function GoogleCalendar({ onTodoDrop }: { onTodoDrop?: (todoItem:
 
       {/* Event Editing Panel */}
       <ThemedView 
-        ref={editingPanelRef}
         style={styles.eventEditingPanel}
         className="event-editing-panel"
       >
+        <View ref={editingPanelRef} />
         {editingEvent ? (
           <View style={styles.editingPanelContent}>            
             <View style={styles.editingPanelBody}>
@@ -1843,56 +2026,14 @@ export default function GoogleCalendar({ onTodoDrop }: { onTodoDrop?: (todoItem:
           }}
         />
       )}
+      {message && (
+        <View style={styles.messageContainer}>
+          <ThemedText style={styles.messageText}>{message}</ThemedText>
+        </View>
+      )}
     </ThemedView>
   );
 }
-
-// Add function to get background color for events
-const getEventBgColor = (colorId: string | undefined) => {
-  // Use the same color as the border but with very low opacity
-  const baseColor = getEventColor(colorId);
-  
-  // Extract the hex color and convert to RGB with alpha
-  const hex = baseColor.substring(1);
-  const r = parseInt(hex.substr(0, 2), 16);
-  const g = parseInt(hex.substr(2, 2), 16);
-  const b = parseInt(hex.substr(4, 2), 16);
-  
-  // Return the color with 10% opacity for a subtle background
-  //   return `rgba(${r}, ${g}, ${b}, 0.2)`;
-  return `rgb(240, 232, 252)`;
-};
-
-// Updated color function to support all-day events with different opacity
-const getEventColor = (colorId: string | undefined, isAllDay: boolean = false) => {
-  const colors: Record<string, string> = {
-    '1': '#7986CB', // Lavender
-    '2': '#33B679', // Sage
-    '3': '#9C27B0', // Purple
-    '4': '#E57373', // Reddish
-    '5': '#FFB74D', // Orange
-    '6': '#FF7043', // Deep Orange
-    '7': '#4FC3F7', // Light Blue
-    '8': '#78909C', // Blue Grey
-    '9': '#7E57C2', // Deeper Purple
-    '10': '#26A69A', // Teal
-    '11': '#EF5350', // Red
-  };
-  
-  const baseColor = colorId && colors[colorId] ? colors[colorId] : '#8365C0'; // Default purple
-  
-  // For all-day events, make the background more transparent
-  if (isAllDay) {
-    // Extract the hex color and convert to RGB with alpha
-    const hex = baseColor.substring(1);
-    const r = parseInt(hex.substr(0, 2), 16);
-    const g = parseInt(hex.substr(2, 2), 16);
-    const b = parseInt(hex.substr(4, 2), 16);
-    return `rgba(${r}, ${g}, ${b}, 0.2)`;
-  }
-  
-  return baseColor;
-};
 
 const styles = StyleSheet.create({
   container: {
@@ -2227,13 +2368,16 @@ const styles = StyleSheet.create({
   },
   eventGhost: {
     position: 'absolute',
-    borderRadius: 4,
-    borderWidth: 2,
-    borderStyle: 'dashed',
-    borderColor: '#EF5350', // Brighter red for better visibility
-    borderLeftWidth: 4,
-    backgroundColor: 'rgba(239, 83, 80, 0.1)', // Light red background
-    zIndex: 4, // Higher z-index to appear above other elements
+    overflow: 'hidden',
+    zIndex: 100,
+    padding: 4,
+  },
+  ghostText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  ghostTime: {
+    fontSize: 10,
   },
   updateIndicator: {
     padding: 4,
@@ -2266,12 +2410,6 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
-  },
-  ghostText: {
-    fontSize: 10,
-    color: '#4285F4',
-    padding: 3,
-    paddingLeft: 6,
   },
   ghostEvent: {
     backgroundColor: 'rgba(100, 150, 255, 0.3)',
@@ -2428,5 +2566,38 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed' as any,
     borderColor: 'rgba(100, 180, 100, 0.8)',
     pointerEvents: 'none' as any,
+  },
+  dragIndicator: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    padding: 8,
+    borderRadius: 4,
+    zIndex: 100,
+  },
+  dragIndicatorText: {
+    color: '#fff',
+    fontSize: 12,
+  },
+  calendarGrid: {
+    flex: 1,
+    position: 'relative',
+  },
+  messageContainer: {
+    position: 'absolute',
+    bottom: 20,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  messageText: {
+    backgroundColor: '#4CAF50', // Green for success
+    color: 'white',
+    padding: 10,
+    borderRadius: 5,
+    fontSize: 14,
+    fontWeight: 'bold',
   },
 }); 
