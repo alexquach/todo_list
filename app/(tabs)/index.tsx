@@ -13,6 +13,8 @@ import { supabase } from '@/lib/supabase';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Auth } from '@/components/Auth';
 import GoogleCalendar from '../../components/GoogleCalendar';
+import { DndProvider } from 'react-dnd';
+import { HTML5Backend } from 'react-dnd-html5-backend';
 
 interface TodoItem {
   id: string;
@@ -658,6 +660,15 @@ export default function HomeScreen() {
     }
   };
 
+  const handleTodoDrop = (todoItem: any, date: Date) => {
+    try {
+      const parsedTodo = typeof todoItem === 'string' ? JSON.parse(todoItem) : todoItem;
+      handleUpdateDueDate(parsedTodo.id, date);
+    } catch (error) {
+      console.error('Error handling todo drop:', error);
+    }
+  };
+
   const renderTodoItem = ({ item, index }: { item: TodoItem, index: number }) => {
     const nextItem = todos[index + 1];
     const prevItem = todos[index - 1];
@@ -701,22 +712,34 @@ export default function HomeScreen() {
       return count;
     };
 
+    // Update the itemProps object to properly handle drag events
+    const itemProps = {
+      draggable: !tagMode, // Don't allow dragging in tag mode
+      onDragStart: (e: React.DragEvent<HTMLDivElement>) => {
+        e.dataTransfer.setData('todoItem', JSON.stringify(item));
+        e.dataTransfer.effectAllowed = 'move';
+      }
+    };
+
     return (
       <>
         <Swipeable
-          enabled={!tagMode}
-          renderRightActions={(progress, dragX) => 
-            renderRightActions(dragX, item)
-          }
-          rightThreshold={-100}
+          renderRightActions={(dragX) => renderRightActions(dragX, item)}
+          friction={2}
+          rightThreshold={40}
+          onSwipeableOpen={() => {
+            if (Platform.OS !== 'web') {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            }
+          }}
         >
           <TouchableOpacity
-            onPress={() => handleTodoClick(item)}
             disabled={!tagMode}
             style={[
               styles.todoItemTouchable,
               tagMode && styles.todoItemTagMode
             ]}
+            {...itemProps}
           >
             <ThemedView 
               onLayout={(event) => {
@@ -956,100 +979,101 @@ export default function HomeScreen() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <KeyboardAvoidingView 
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={{ flex: 1 }}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? -tabBarHeight : 0}
-      >
-        <LinearGradient
-          colors={['#3B82F6', '#9333EA']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-          style={[
-            styles.container,
-            Platform.OS !== 'web' && { paddingBottom: tabBarHeight }
-          ]}
+      <DndProvider backend={HTML5Backend}>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          <ThemedView style={styles.layoutContainer}>
-            <ThemedView style={styles.todoListContainer}>
-              <ThemedText type="title">Todo List</ThemedText>
-              
-              <FlatList
-                data={todos}
-                keyExtractor={(item) => item.id}
-                renderItem={renderTodoItem}
-                style={styles.todoList}
-                contentContainerStyle={styles.listContent}
-                getItemLayout={getItemLayout}
-                onScroll={handleScroll}
-                scrollEventThrottle={16}
-                refreshControl={
-                  <RefreshControl
-                    refreshing={refreshing}
-                    onRefresh={onRefresh}
-                    tintColor="#ffffff"
-                  />
-                }
-                ListEmptyComponent={
-                  <ThemedText style={styles.emptyListText}>
-                    No todos yet. Add one below!
-                  </ThemedText>
-                }
-              />
-
-              <ThemedView style={styles.inputContainer}>
-                <TextInput
-                  ref={inputRef}
-                  style={styles.input}
-                  value={inputText}
-                  onChangeText={setInputText}
-                  placeholder="Add a new todo..."
-                  placeholderTextColor="#666"
-                  onSubmitEditing={handleAddTodo}
-                />
-                <TagMenu />
-                <TouchableOpacity 
-                  style={styles.addButton}  
-                  onPress={handleAddTodo}
-                  activeOpacity={0.7}
-                >
-                  <ThemedText style={styles.addButtonText}>Add</ThemedText>
-                </TouchableOpacity>
-              </ThemedView>
-            </ThemedView>
-            
-            {Platform.OS === 'web' && (
-              <ThemedView style={styles.calendarContainer}>
-                <GoogleCalendar />
-              </ThemedView>
-            )}
-          </ThemedView>
-
-          {showDatePicker && (
-            <>
-              <TouchableOpacity 
-                style={styles.datePickerBackdrop} 
-                onPress={() => {
-                  setShowDatePicker(false);
-                  setDatePickerPosition(null);
-                }}
-              />
-              {Platform.OS === 'web' ? (
-                renderDatePicker()
-              ) : (
-                renderDatePicker()
-              )}
-            </>
-          )}
-          <TouchableOpacity 
-            style={styles.signOutButton} 
-            onPress={() => supabase.auth.signOut()}
+          <LinearGradient
+            colors={['#3B82F6', '#9333EA']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={[
+              styles.container,
+              Platform.OS !== 'web' && { paddingBottom: tabBarHeight }
+            ]}
           >
-            <ThemedText style={styles.signOutText}>Sign Out</ThemedText>
-          </TouchableOpacity>
-          <SettingsMenu />
-        </LinearGradient>
-      </KeyboardAvoidingView>
+            <ThemedView style={styles.layoutContainer}>
+              <ThemedView style={styles.todoListContainer}>
+                <ThemedText type="title">Todo List</ThemedText>
+                
+                <FlatList
+                  data={todos}
+                  keyExtractor={(item) => item.id}
+                  renderItem={renderTodoItem}
+                  style={styles.todoList}
+                  contentContainerStyle={styles.listContent}
+                  getItemLayout={getItemLayout}
+                  onScroll={handleScroll}
+                  scrollEventThrottle={16}
+                  refreshControl={
+                    <RefreshControl
+                      refreshing={refreshing}
+                      onRefresh={onRefresh}
+                      tintColor="#ffffff"
+                    />
+                  }
+                  ListEmptyComponent={
+                    <ThemedText style={styles.emptyListText}>
+                      No todos yet. Add one below!
+                    </ThemedText>
+                  }
+                />
+
+                <ThemedView style={styles.inputContainer}>
+                  <TextInput
+                    ref={inputRef}
+                    style={styles.input}
+                    value={inputText}
+                    onChangeText={setInputText}
+                    placeholder="Add a new todo..."
+                    placeholderTextColor="#666"
+                    onSubmitEditing={handleAddTodo}
+                  />
+                  <TagMenu />
+                  <TouchableOpacity 
+                    style={styles.addButton}  
+                    onPress={handleAddTodo}
+                    activeOpacity={0.7}
+                  >
+                    <ThemedText style={styles.addButtonText}>Add</ThemedText>
+                  </TouchableOpacity>
+                </ThemedView>
+              </ThemedView>
+              
+              {Platform.OS === 'web' && (
+                <ThemedView style={styles.calendarContainer}>
+                  <GoogleCalendar onTodoDrop={handleTodoDrop} />
+                </ThemedView>
+              )}
+            </ThemedView>
+
+            {showDatePicker && (
+              <>
+                <TouchableOpacity 
+                  style={styles.datePickerBackdrop} 
+                  onPress={() => {
+                    setShowDatePicker(false);
+                    setDatePickerPosition(null);
+                  }}
+                />
+                {Platform.OS === 'web' ? (
+                  renderDatePicker()
+                ) : (
+                  renderDatePicker()
+                )}
+              </>
+            )}
+            <TouchableOpacity 
+              style={styles.signOutButton} 
+              onPress={() => supabase.auth.signOut()}
+            >
+              <ThemedText style={styles.signOutText}>Sign Out</ThemedText>
+            </TouchableOpacity>
+            <SettingsMenu />
+          </LinearGradient>
+        </KeyboardAvoidingView>
+      </DndProvider>
     </GestureHandlerRootView>
   );
 }
@@ -1476,15 +1500,18 @@ const styles = StyleSheet.create({
     width: '100%',
     borderRadius: 8,
     overflow: 'hidden',
+    backgroundColor: 'transparent',
   },
   todoListContainer: {
     flex: 1,
-    width: Platform.OS === 'web' ? '65%' : '100%',
+    width: Platform.OS === 'web' ? '40%' : '100%',
+    backgroundColor: 'transparent',
   },
   calendarContainer: {
     display: Platform.OS === 'web' ? 'flex' : 'none',
-    width: Platform.OS === 'web' ? '35%' : '0%',
+    width: Platform.OS === 'web' ? '60%' : '0%',
     paddingLeft: Platform.OS === 'web' ? 20 : 0,
+    backgroundColor: 'transparent',
   },
   todoList: {
     flex: 1,
