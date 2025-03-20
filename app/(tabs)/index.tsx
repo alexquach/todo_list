@@ -1,4 +1,4 @@
-import { StyleSheet, TextInput, TouchableOpacity, FlatList, Animated, Platform, RefreshControl, KeyboardAvoidingView, Keyboard, View } from 'react-native';
+import { StyleSheet, TextInput, TouchableOpacity, FlatList, Animated, Platform, RefreshControl, KeyboardAvoidingView, Keyboard, View, TouchableWithoutFeedback } from 'react-native';
 import { useState, useEffect, useRef } from 'react';
 import { Swipeable, GestureHandlerRootView } from 'react-native-gesture-handler';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -13,6 +13,8 @@ import { supabase } from '@/lib/supabase';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Auth } from '@/components/Auth';
 import GoogleCalendar from '../../components/GoogleCalendar';
+import { DndProvider } from 'react-dnd';
+import { HTML5Backend } from 'react-dnd-html5-backend';
 
 interface TodoItem {
   id: string;
@@ -23,6 +25,7 @@ interface TodoItem {
   created_at: string;
   archived: boolean;
   snooze_time: string | null;
+  is_on_calendar?: boolean;
 }
 
 interface DatePickerPosition {
@@ -91,6 +94,11 @@ export default function HomeScreen() {
   const [autoSnooze, setAutoSnooze] = useState(false);
   
   const [showSettings, setShowSettings] = useState(false);
+  const [draggedTodo, setDraggedTodo] = useState<TodoItem | null>(null);
+  const [dragPosition, setDragPosition] = useState<{x: number, y: number} | null>(null);
+
+  const [pressedColorBarId, setPressedColorBarId] = useState<string | null>(null);
+
   const tagOptions: TagOption[] = [
     {
       id: 'due_today',
@@ -361,7 +369,8 @@ export default function HomeScreen() {
         due_date: autoSetDueDate ? standardizeDate(today) : null,
         created_at: standardizeDate(new Date()),
         archived: autoArchive,
-        snooze_time: autoSnooze ? standardizeDate(autoSnoozeDate) : null
+        snooze_time: autoSnooze ? standardizeDate(autoSnoozeDate) : null,
+        is_on_calendar: false,
       };
       
       try {
@@ -658,6 +667,65 @@ export default function HomeScreen() {
     }
   };
 
+  const clearDraggedTodo = () => {
+    setDraggedTodo(null);
+    setDragPosition(null);
+  };
+
+  const handleTodoDrop = async (todoItem: TodoItem, date: Date) => {
+    console.log('Todo dropped on calendar:', todoItem.text, 'at date:', date);
+    
+    try {
+      // Update the todo's due date
+      await handleUpdateDueDate(todoItem.id, date);
+      
+      // Also mark the todo as being on the calendar
+      const { error } = await supabase
+        .from('todos')
+        .update({ is_on_calendar: true })
+        .eq('id', todoItem.id);
+        
+      if (error) {
+        console.error('Error updating todo is_on_calendar status:', error);
+      }
+      
+      // Refresh the todos to show the updated status
+      fetchTodos();
+    } catch (error) {
+      console.error('Error handling todo drop:', error);
+    }
+    
+    // Clear the dragged todo
+    clearDraggedTodo();
+  };
+
+  // Add this function to handle todo due date updates when events are moved
+  const handleTodoEventMoved = (todoId: string, newDate: Date) => {
+    console.log('Calendar event moved, updating todo:', todoId, 'to date:', newDate);
+    
+    // Update the todo item's due date
+    handleUpdateDueDate(todoId, newDate);
+  };
+
+  // First, add this function to determine the color based on todo status
+  const getTodoBarColor = (todo: TodoItem): string => {
+    if (todo.is_on_calendar) {
+      return '#4285F4'; // Blue for calendar items
+    } else if (todo.completed) {
+      return '#34A853'; // Green for completed todos
+    } else if (todo.due_date && new Date(todo.due_date) < new Date()) {
+      return '#EA4335'; // Red for overdue todos
+    } else if (todo.due_date && new Date(todo.due_date).toDateString() === new Date().toDateString()) {
+      return '#FBBC05'; // Yellow for today's todos
+    } else if (todo.archived) {
+      return '#9AA0A6'; // Grey for archived todos
+    } else if (todo.snooze_time) {
+      return '#A142F4'; // Purple for snoozed todos
+    }
+    
+    return '#9575CD'; // Default color
+  };
+
   const renderTodoItem = ({ item, index }: { item: TodoItem, index: number }) => {
     const nextItem = todos[index + 1];
     const prevItem = todos[index - 1];
@@ -701,30 +769,35 @@ export default function HomeScreen() {
       return count;
     };
 
+    // Update the itemProps object to properly handle drag events
+    const itemProps = {
+      draggable: !tagMode, // Don't allow dragging in tag mode
+      onDragStart: (e: React.DragEvent<HTMLDivElement>) => {
+        e.dataTransfer.setData('todoItem', JSON.stringify(item));
+        e.dataTransfer.effectAllowed = 'move';
+      }
+    };
+
     return (
       <>
         <Swipeable
-          enabled={!tagMode}
-          renderRightActions={(progress, dragX) => 
-            renderRightActions(dragX, item)
-          }
-          rightThreshold={-100}
+          renderRightActions={(dragX) => renderRightActions(dragX, item)}
+          onSwipeableOpen={(direction) => {
+            if (direction === 'right') {
+              // existing code...
+            }
+          }}
         >
-          <TouchableOpacity
-            onPress={() => handleTodoClick(item)}
+          <TouchableWithoutFeedback
             disabled={!tagMode}
             style={[
               styles.todoItemTouchable,
               tagMode && styles.todoItemTagMode
             ]}
+            {...itemProps}
           >
             <ThemedView 
-              onLayout={(event) => {
-                const { height } = event.nativeEvent.layout;
-                if (height > 0 && height !== itemHeight) {
-                  setItemHeight(height);
-                }
-              }}
+              data-todo-id={item.id}
               style={[
                 styles.todoItem,
                 isFirstInGroup && styles.firstInGroup,
@@ -739,6 +812,7 @@ export default function HomeScreen() {
               >
                 {item.completed && <ThemedText style={styles.checkmark}>✓</ThemedText>}
               </TouchableOpacity>
+              
               <ThemedView style={styles.todoTextContainer}>
                 {editingTodoId === item.id ? (
                   <TextInput
@@ -812,6 +886,9 @@ export default function HomeScreen() {
                 {item.snooze_time && (
                   <ThemedText style={styles.metaIcon}>💤</ThemedText>
                 )}
+                {item.is_on_calendar && (
+                  <ThemedText style={styles.metaIcon}>📅</ThemedText>
+                )}
                 <TouchableOpacity 
                   style={styles.calendarButton}
                   onPress={(event) => showDatePickerAtPosition(event, item.id)}
@@ -819,8 +896,18 @@ export default function HomeScreen() {
                   <CalendarIcon date={item.due_date ? new Date(item.due_date) : undefined} />
                 </TouchableOpacity>
               </ThemedView>
+              <TouchableOpacity 
+                style={[
+                  styles.todoColorBar,
+                  { backgroundColor: getTodoBarColor(item) },
+                  pressedColorBarId === item.id && styles.todoColorBarPressed
+                ]}
+                onPress={() => setDraggedTodo(item)}
+                onPressIn={() => setPressedColorBarId(item.id)}
+                onPressOut={() => setPressedColorBarId(null)}
+              />
             </ThemedView>
-          </TouchableOpacity>
+          </TouchableWithoutFeedback>
         </Swipeable>
         {Array.from({ length: getWeekBoundaryCount() }, (_, i) => (
           <ThemedView key={`divider-${item.id}-${i}`} style={styles.weekDivider} />
@@ -956,100 +1043,106 @@ export default function HomeScreen() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <KeyboardAvoidingView 
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={{ flex: 1 }}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? -tabBarHeight : 0}
-      >
-        <LinearGradient
-          colors={['#3B82F6', '#9333EA']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-          style={[
-            styles.container,
-            Platform.OS !== 'web' && { paddingBottom: tabBarHeight }
-          ]}
+      <DndProvider backend={HTML5Backend}>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          <ThemedView style={styles.layoutContainer}>
-            <ThemedView style={styles.todoListContainer}>
-              <ThemedText type="title">Todo List</ThemedText>
-              
-              <FlatList
-                data={todos}
-                keyExtractor={(item) => item.id}
-                renderItem={renderTodoItem}
-                style={styles.todoList}
-                contentContainerStyle={styles.listContent}
-                getItemLayout={getItemLayout}
-                onScroll={handleScroll}
-                scrollEventThrottle={16}
-                refreshControl={
-                  <RefreshControl
-                    refreshing={refreshing}
-                    onRefresh={onRefresh}
-                    tintColor="#ffffff"
-                  />
-                }
-                ListEmptyComponent={
-                  <ThemedText style={styles.emptyListText}>
-                    No todos yet. Add one below!
-                  </ThemedText>
-                }
-              />
-
-              <ThemedView style={styles.inputContainer}>
-                <TextInput
-                  ref={inputRef}
-                  style={styles.input}
-                  value={inputText}
-                  onChangeText={setInputText}
-                  placeholder="Add a new todo..."
-                  placeholderTextColor="#666"
-                  onSubmitEditing={handleAddTodo}
-                />
-                <TagMenu />
-                <TouchableOpacity 
-                  style={styles.addButton}  
-                  onPress={handleAddTodo}
-                  activeOpacity={0.7}
-                >
-                  <ThemedText style={styles.addButtonText}>Add</ThemedText>
-                </TouchableOpacity>
-              </ThemedView>
-            </ThemedView>
-            
-            {Platform.OS === 'web' && (
-              <ThemedView style={styles.calendarContainer}>
-                <GoogleCalendar />
-              </ThemedView>
-            )}
-          </ThemedView>
-
-          {showDatePicker && (
-            <>
-              <TouchableOpacity 
-                style={styles.datePickerBackdrop} 
-                onPress={() => {
-                  setShowDatePicker(false);
-                  setDatePickerPosition(null);
-                }}
-              />
-              {Platform.OS === 'web' ? (
-                renderDatePicker()
-              ) : (
-                renderDatePicker()
-              )}
-            </>
-          )}
-          <TouchableOpacity 
-            style={styles.signOutButton} 
-            onPress={() => supabase.auth.signOut()}
+          <LinearGradient
+            colors={['#3B82F6', '#9333EA']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={[
+              styles.container,
+              Platform.OS !== 'web' && { paddingBottom: tabBarHeight }
+            ]}
           >
-            <ThemedText style={styles.signOutText}>Sign Out</ThemedText>
-          </TouchableOpacity>
-          <SettingsMenu />
-        </LinearGradient>
-      </KeyboardAvoidingView>
+            <ThemedView style={styles.layoutContainer}>
+              <ThemedView style={styles.todoListContainer}>
+                <ThemedText type="title">Todo List</ThemedText>
+                
+                <FlatList
+                  data={todos}
+                  keyExtractor={(item) => item.id}
+                  renderItem={renderTodoItem}
+                  style={styles.todoList}
+                  contentContainerStyle={styles.listContent}
+                  getItemLayout={getItemLayout}
+                  onScroll={handleScroll}
+                  scrollEventThrottle={16}
+                  refreshControl={
+                    <RefreshControl
+                      refreshing={refreshing}
+                      onRefresh={onRefresh}
+                      tintColor="#ffffff"
+                    />
+                  }
+                  ListEmptyComponent={
+                    <ThemedText style={styles.emptyListText}>
+                      No todos yet. Add one below!
+                    </ThemedText>
+                  }
+                />
+
+                <ThemedView style={styles.inputContainer}>
+                  <TextInput
+                    ref={inputRef}
+                    style={styles.input}
+                    value={inputText}
+                    onChangeText={setInputText}
+                    placeholder="Add a new todo..."
+                    placeholderTextColor="#666"
+                    onSubmitEditing={handleAddTodo}
+                  />
+                  <TagMenu />
+                  <TouchableOpacity 
+                    style={styles.addButton}  
+                    onPress={handleAddTodo}
+                    activeOpacity={0.7}
+                  >
+                    <ThemedText style={styles.addButtonText}>Add</ThemedText>
+                  </TouchableOpacity>
+                </ThemedView>
+              </ThemedView>
+              
+              {Platform.OS === 'web' && (
+                <ThemedView style={styles.calendarContainer}>
+                  <GoogleCalendar 
+                    onTodoDrop={handleTodoDrop}
+                    draggedTodo={draggedTodo}
+                    clearDraggedTodo={clearDraggedTodo}
+                    onTodoEventMoved={handleTodoEventMoved}
+                  />
+                </ThemedView>
+              )}
+            </ThemedView>
+
+            {showDatePicker && (
+              <>
+                <TouchableOpacity 
+                  style={styles.datePickerBackdrop} 
+                  onPress={() => {
+                    setShowDatePicker(false);
+                    setDatePickerPosition(null);
+                  }}
+                />
+                {Platform.OS === 'web' ? (
+                  renderDatePicker()
+                ) : (
+                  renderDatePicker()
+                )}
+              </>
+            )}
+            <TouchableOpacity 
+              style={styles.signOutButton} 
+              onPress={() => supabase.auth.signOut()}
+            >
+              <ThemedText style={styles.signOutText}>Sign Out</ThemedText>
+            </TouchableOpacity>
+            <SettingsMenu />
+          </LinearGradient>
+        </KeyboardAvoidingView>
+      </DndProvider>
     </GestureHandlerRootView>
   );
 }
@@ -1476,15 +1569,18 @@ const styles = StyleSheet.create({
     width: '100%',
     borderRadius: 8,
     overflow: 'hidden',
+    backgroundColor: 'transparent',
   },
   todoListContainer: {
     flex: 1,
-    width: Platform.OS === 'web' ? '65%' : '100%',
+    width: Platform.OS === 'web' ? '40%' : '100%',
+    backgroundColor: 'transparent',
   },
   calendarContainer: {
     display: Platform.OS === 'web' ? 'flex' : 'none',
-    width: Platform.OS === 'web' ? '35%' : '0%',
+    width: Platform.OS === 'web' ? '60%' : '0%',
     paddingLeft: Platform.OS === 'web' ? 20 : 0,
+    backgroundColor: 'transparent',
   },
   todoList: {
     flex: 1,
@@ -1494,5 +1590,26 @@ const styles = StyleSheet.create({
     color: '#888',
     textAlign: 'center',
     marginTop: 20,
+  },
+  dragHandle: {
+    padding: 6,
+    marginRight: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    ...(Platform.OS === 'web' ? {
+      cursor: 'grab' as any,
+    } : {}),
+  },
+  todoColorBar: {
+    width: 6,
+    alignSelf: 'stretch',
+    borderTopRightRadius: 0,
+    borderBottomRightRadius: 0,
+    marginLeft: 4,
+    marginRight: -8,
+  },
+  todoColorBarPressed: {
+    opacity: 0.7,
+    width: 10, // Make it slightly wider when pressed for visual feedback
   },
 });
