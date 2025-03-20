@@ -158,6 +158,9 @@ export default function GoogleCalendar({ onTodoDrop }: { onTodoDrop?: (todoItem:
   } | null>(null);
   const [positionedEvents, setPositionedEvents] = useState<PositionedEvent[]>([]);
   const editingPanelRef = React.useRef(null);
+  // Add this to your component state variables
+  const [isDragThresholdMet, setIsDragThresholdMet] = useState(false);
+  const DRAG_THRESHOLD = 5; // Pixels to move before showing ghost preview
 
   // Update current time every minute
   useEffect(() => {
@@ -939,7 +942,7 @@ export default function GoogleCalendar({ onTodoDrop }: { onTodoDrop?: (todoItem:
     // setEditingEvent(null);
   };
 
-  // Update the startDragEvent function to better initialize state
+  // Update startDragEvent to initialize the threshold state
   const startDragEvent = (event: PositionedEvent, clientX: number, clientY: number) => {
     console.log('Starting drag operation for event:', event.summary);
     
@@ -951,6 +954,7 @@ export default function GoogleCalendar({ onTodoDrop }: { onTodoDrop?: (todoItem:
     
     // Set drag-specific state
     setIsDraggingEvent(true);
+    setIsDragThresholdMet(false); // Start with threshold not met
     setDraggedEvent(event);
     setDragStartY(clientY);
     setDragStartX(clientX);
@@ -977,126 +981,139 @@ export default function GoogleCalendar({ onTodoDrop }: { onTodoDrop?: (todoItem:
     });
   };
 
-  // Update finishDragEvent to apply snapped positions and update the API
+  // Update finishDragEvent to reset the threshold state
   const finishDragEvent = () => {
     if (!isDraggingEvent || !draggedEvent) {
       return;
     }
     
-    console.log('Finishing drag operation...');
-    
-    // Calculate what actually changed
-    const oldColumn = draggedEvent.column;
-    const newColumn = Math.round(temporaryEventPosition.left / (100/7));
-    
-    const oldTop = draggedEvent.top;
-    const newTop = temporaryEventPosition.top;
-    
-    // Calculate time difference
-    const hourHeight = 60; // Height for one hour in pixels
-    const pixelsPerMinute = hourHeight / 60;
-    
-    // Calculate the old time (in minutes since midnight)
-    const oldStartMinutes = oldTop / pixelsPerMinute;
-    
-    // Calculate the new time (in minutes since midnight)
-    const newStartMinutes = newTop / pixelsPerMinute;
-    
-    // Time difference in minutes
-    const minutesDifference = newStartMinutes - oldStartMinutes;
-    
-    // Calculate day difference
-    const dayDifference = newColumn - oldColumn;
-    
-    console.log(`Event moved: 
-      - Column change: ${oldColumn} -> ${newColumn} (${dayDifference} days)
-      - Time change: ${Math.floor(oldStartMinutes/60)}:${Math.round(oldStartMinutes%60)} -> ${Math.floor(newStartMinutes/60)}:${Math.round(newStartMinutes%60)} (${minutesDifference} minutes)`);
-    
-    // Only update if something changed
-    if (dayDifference !== 0 || Math.abs(minutesDifference) >= 1) {
-      if (!draggedEvent.start.dateTime || !draggedEvent.end.dateTime) {
-        console.error('Event missing dateTime properties');
-        setIsDraggingEvent(false);
-        setDraggedEvent(null);
-        return;
-      }
+    // Only process the drag if we actually moved beyond the threshold
+    if (isDragThresholdMet) {
+      console.log('Finishing drag operation...');
       
-      // Calculate new start and end times
-      const originalStart = new Date(draggedEvent.start.dateTime);
-      const originalEnd = new Date(draggedEvent.end.dateTime);
+      // Calculate what actually changed
+      const oldColumn = draggedEvent.column;
+      const newColumn = Math.round(temporaryEventPosition.left / (100/7));
       
-      // Apply time difference (in minutes)
-      const newStart = new Date(originalStart);
-      newStart.setMinutes(originalStart.getMinutes() + minutesDifference);
+      const oldTop = draggedEvent.top;
+      const newTop = temporaryEventPosition.top;
       
-      const newEnd = new Date(originalEnd);
-      newEnd.setMinutes(originalEnd.getMinutes() + minutesDifference);
+      // Calculate time difference
+      const hourHeight = 60; // Height for one hour in pixels
+      const pixelsPerMinute = hourHeight / 60;
       
-      // Apply day difference
-      if (dayDifference !== 0) {
-        newStart.setDate(newStart.getDate() + dayDifference);
-        newEnd.setDate(newEnd.getDate() + dayDifference);
-      }
+      // Calculate the old time (in minutes since midnight)
+      const oldStartMinutes = oldTop / pixelsPerMinute;
       
-      // Format for API
-      const formattedStart = newStart.toISOString();
-      const formattedEnd = newEnd.toISOString();
+      // Calculate the new time (in minutes since midnight)
+      const newStartMinutes = newTop / pixelsPerMinute;
       
-      console.log(`Updating event times:
-        - Original: ${formatEventTime(draggedEvent.start.dateTime)} - ${formatEventTime(draggedEvent.end.dateTime)}
-        - New: ${formatEventTime(formattedStart)} - ${formatEventTime(formattedEnd)}`);
+      // Time difference in minutes
+      const minutesDifference = newStartMinutes - oldStartMinutes;
       
-      // Update the event in the API
-      updateEvent(draggedEvent.id, {
-        start: {
-          dateTime: formattedStart,
-          timeZone: draggedEvent.start.timeZone
-        },
-        end: {
-          dateTime: formattedEnd,
-          timeZone: draggedEvent.end.timeZone
+      // Calculate day difference
+      const dayDifference = newColumn - oldColumn;
+      
+      console.log(`Event moved: 
+        - Column change: ${oldColumn} -> ${newColumn} (${dayDifference} days)
+        - Time change: ${Math.floor(oldStartMinutes/60)}:${Math.round(oldStartMinutes%60)} -> ${Math.floor(newStartMinutes/60)}:${Math.round(newStartMinutes%60)} (${minutesDifference} minutes)`);
+      
+      // Only update if something changed
+      if (dayDifference !== 0 || Math.abs(minutesDifference) >= 1) {
+        if (!draggedEvent.start.dateTime || !draggedEvent.end.dateTime) {
+          console.error('Event missing dateTime properties');
+          setIsDraggingEvent(false);
+          setDraggedEvent(null);
+          return;
         }
-      }).then(() => {
-        console.log('Event updated successfully after drag');
         
-        // Update the local state to reflect the changes
-        setEvents(prevEvents => 
-          prevEvents.map(event => 
-            event.id === draggedEvent.id 
-              ? {
-                  ...event,
-                  start: {
-                    ...event.start,
-                    dateTime: formattedStart
-                  },
-                  end: {
-                    ...event.end,
-                    dateTime: formattedEnd
-                  }
-                } 
-              : event
-          )
-        );
-      })
-      .catch(error => {
-        console.error('Failed to update event after drag:', error);
-      });
-    } else {
-      console.log('No significant change detected, skipping API update');
+        // Calculate new start and end times
+        const originalStart = new Date(draggedEvent.start.dateTime);
+        const originalEnd = new Date(draggedEvent.end.dateTime);
+        
+        // Apply time difference (in minutes)
+        const newStart = new Date(originalStart);
+        newStart.setMinutes(originalStart.getMinutes() + minutesDifference);
+        
+        const newEnd = new Date(originalEnd);
+        newEnd.setMinutes(originalEnd.getMinutes() + minutesDifference);
+        
+        // Apply day difference
+        if (dayDifference !== 0) {
+          newStart.setDate(newStart.getDate() + dayDifference);
+          newEnd.setDate(newEnd.getDate() + dayDifference);
+        }
+        
+        // Format for API
+        const formattedStart = newStart.toISOString();
+        const formattedEnd = newEnd.toISOString();
+        
+        console.log(`Updating event times:
+          - Original: ${formatEventTime(draggedEvent.start.dateTime)} - ${formatEventTime(draggedEvent.end.dateTime)}
+          - New: ${formatEventTime(formattedStart)} - ${formatEventTime(formattedEnd)}`);
+        
+        // Update the event in the API
+        updateEvent(draggedEvent.id, {
+          start: {
+            dateTime: formattedStart,
+            timeZone: draggedEvent.start.timeZone
+          },
+          end: {
+            dateTime: formattedEnd,
+            timeZone: draggedEvent.end.timeZone
+          }
+        }).then(() => {
+          console.log('Event updated successfully after drag');
+          
+          // Update the local state to reflect the changes
+          setEvents(prevEvents => 
+            prevEvents.map(event => 
+              event.id === draggedEvent.id 
+                ? {
+                    ...event,
+                    start: {
+                      ...event.start,
+                      dateTime: formattedStart
+                    },
+                    end: {
+                      ...event.end,
+                      dateTime: formattedEnd
+                    }
+                  } 
+                : event
+            )
+          );
+        })
+        .catch(error => {
+          console.error('Failed to update event after drag:', error);
+        });
+      } else {
+        console.log('No significant change detected, skipping API update');
+      }
     }
     
     // Reset drag state
     setIsDraggingEvent(false);
+    setIsDragThresholdMet(false);
     setDraggedEvent(null);
   };
 
-  // Update handleDragMove to properly snap in both directions
+  // Update handleDragMove to include drag threshold check
   const handleDragMove = (clientX: number, clientY: number) => {
     if (!isDraggingEvent || !draggedEvent) return;
 
     // Calculate raw delta from the starting position
     const deltaY = clientY - dragStartY;
     const deltaX = clientX - dragStartX;
+    
+    // Check if we've moved enough to show the ghost
+    const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+    const thresholdMet = distance > DRAG_THRESHOLD;
+    
+    // Update threshold state if needed
+    if (thresholdMet !== isDragThresholdMet) {
+      setIsDragThresholdMet(thresholdMet);
+    }
     
     // For vertical position: snap to 15-minute intervals
     const hourHeight = 60; // Height for one hour in pixels
@@ -1141,11 +1158,14 @@ export default function GoogleCalendar({ onTodoDrop }: { onTodoDrop?: (todoItem:
       newLeft = Math.max(0, Math.min(6, newColumn)) * columnWidth;
     }
     
-    console.log(`Dragging event:
-      - Raw delta: X=${deltaX}, Y=${deltaY}
-      - Snapped position: top=${snappedTop}, left=${newLeft}%
-      - Column: ${Math.round(newLeft / (100/7))}
-      - Time: ${Math.floor(snappedTop / hourHeight)}:${Math.round((snappedTop % hourHeight) / pixelsPerMinute)}`);
+    // Only log if we're past the threshold
+    if (thresholdMet) {
+      console.log(`Dragging event:
+        - Raw delta: X=${deltaX}, Y=${deltaY}
+        - Snapped position: top=${snappedTop}, left=${newLeft}%
+        - Column: ${Math.round(newLeft / (100/7))}
+        - Time: ${Math.floor(snappedTop / hourHeight)}:${Math.round((snappedTop % hourHeight) / pixelsPerMinute)}`);
+    }
     
     // Update temporary position for visual feedback
     setTemporaryEventPosition({
@@ -1201,6 +1221,7 @@ export default function GoogleCalendar({ onTodoDrop }: { onTodoDrop?: (todoItem:
     resizeData, 
     temporaryEventHeight, 
     originalEventHeight,
+    isDragThresholdMet, // Add this dependency
   ]);
 
   // Keep just the useEffect that updates positioned events
@@ -1515,8 +1536,8 @@ export default function GoogleCalendar({ onTodoDrop }: { onTodoDrop?: (todoItem:
                 </View>
               )}
               
-              {/* Dragging ghost - Update to show time info */}
-              {isDraggingEvent && draggedEvent && (
+              {/* Dragging ghost - Only show when threshold is met */}
+              {isDraggingEvent && draggedEvent && isDragThresholdMet && (
                 <View
                   style={[
                     styles.event,
@@ -1570,6 +1591,7 @@ export default function GoogleCalendar({ onTodoDrop }: { onTodoDrop?: (todoItem:
                 const isSelected = editingEvent?.id === event.id;
                 const isBeingResized = isEventResizing && editingEvent?.id === event.id;
                 const isBeingDragged = isDraggingEvent && draggedEvent?.id === event.id;
+                const isDraggingPastThreshold = isBeingDragged && isDragThresholdMet;
                 
                 // Determine display position and size
                 const displayTop = isBeingDragged ? temporaryEventPosition.top : event.top;
@@ -1593,8 +1615,8 @@ export default function GoogleCalendar({ onTodoDrop }: { onTodoDrop?: (todoItem:
                         borderLeftColor: getEventColor(event.colorId),
                         borderLeftWidth: 4,
                         zIndex: isSelected || isBeingDragged ? 5 : 2,
-                        cursor: isBeingDragged ? 'grabbing' as any : 'grab' as any,
-                        opacity: isBeingDragged ? 0.8 : 1,
+                        cursor: isDraggingPastThreshold ? 'grabbing' as any : 'grab' as any,
+                        opacity: isDraggingPastThreshold ? 0.8 : 1,
                       }
                     ]}
                   >
@@ -2062,14 +2084,15 @@ const styles = StyleSheet.create({
   event: {
     position: 'absolute',
     borderRadius: 4,
-    padding: 3,
-    paddingLeft: 6,
+    padding: 0,
+    paddingLeft: 0,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: '#e0e0e0',
   },
   eventTitle: {
     fontSize: 11, // Reduce font size from 12 to 11
+    lineHeight: 14,
     fontWeight: '500',
     color: '#333',
     marginBottom: 0, // Add a smaller margin between title and time
@@ -2077,6 +2100,7 @@ const styles = StyleSheet.create({
   },
   eventTime: {
     fontSize: 9, // Reduce font size from 10 to 9
+    lineHeight: 12,
     color: '#666',
     marginTop: 0, // Remove margin top
   },
@@ -2396,7 +2420,7 @@ const styles = StyleSheet.create({
   },
   eventContent: {
     flex: 1,
-    padding: 4,
+    paddingLeft: 3,
   },
   dragGhost: {
     backgroundColor: 'rgba(100, 180, 100, 0.3)',
