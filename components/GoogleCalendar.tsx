@@ -415,8 +415,25 @@ export default function GoogleCalendar({
     }
   };
 
-  // Fetch calendar events
-  const fetchEvents = async (accessToken: string, silentRefresh = false) => {
+  // Handle navigation between weeks
+  const navigateWeek = (direction: number, silentRefresh = false) => {
+    const newStartDate = new Date(currentWeek[0]);
+    newStartDate.setDate(newStartDate.getDate() + (7 * direction));
+    const newWeek = getDaysOfWeek(newStartDate);
+    
+    // Set the new current week
+    setCurrentWeek(newWeek);
+    
+    // If we have a token, fetch events for the new week
+    // Pass newWeek directly to fetchEvents instead of relying on the state update
+    if (token) {
+      // Modify fetchEvents call to pass the new week directly
+      fetchEventsForWeek(token, newWeek, silentRefresh);
+    }
+  };
+
+  // Add a new function that takes the week as a parameter
+  const fetchEventsForWeek = async (accessToken: string, week: Date[], silentRefresh = false) => {
     try {
       // Check if token needs refresh before making request
       const wasRefreshed = await refreshTokenIfNeeded(accessToken);
@@ -433,10 +450,12 @@ export default function GoogleCalendar({
         setLoading(true);
       }
       
-      // Use the start and end of current week for the date range
-      const startDate = new Date(currentWeek[0]);
-      const endDate = new Date(currentWeek[6]);
+      // Use the provided week instead of currentWeek state
+      const startDate = new Date(week[0]);
+      const endDate = new Date(week[6]);
       endDate.setHours(23, 59, 59);
+
+      console.log('Fetching events for date range:', startDate.toISOString(), 'to', endDate.toISOString());
       
       const response = await fetch(
         `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${startDate.toISOString()}&timeMax=${endDate.toISOString()}&singleEvents=true&orderBy=startTime`,
@@ -447,6 +466,7 @@ export default function GoogleCalendar({
         }
       );
       
+      // Rest of the fetch logic remains the same
       const data = await response.json();
       
       if (data.error) {
@@ -480,6 +500,12 @@ export default function GoogleCalendar({
         setLoading(false); // Only update loading state if not silent
       }
     }
+  };
+
+  // Update the original fetchEvents to use the new function
+  const fetchEvents = async (accessToken: string, silentRefresh = false) => {
+    // Just pass the current week from state
+    fetchEventsForWeek(accessToken, currentWeek, silentRefresh);
   };
 
   // Format the month and year like in Notion
@@ -594,19 +620,6 @@ export default function GoogleCalendar({
     });
     
     return positioned;
-  };
-
-  // Handle navigation between weeks
-  const navigateWeek = (direction: number, silentRefresh = false) => {
-    const newStartDate = new Date(currentWeek[0]);
-    newStartDate.setDate(newStartDate.getDate() + (7 * direction));
-    const newWeek = getDaysOfWeek(newStartDate);
-    setCurrentWeek(newWeek);
-    
-    // If we have a token, fetch events for the new week
-    if (token) {
-      fetchEvents(token, silentRefresh);
-    }
   };
 
   // Add function to create an event from a todo item
@@ -1502,6 +1515,20 @@ export default function GoogleCalendar({
     return event.extendedProperties?.private?.isTodoEvent === 'true';
   };
 
+  // Add a goToToday function to navigate to the current week
+  const goToToday = (silentRefresh = false) => {
+    // Get the days for the current week
+    const todayWeek = getDaysOfWeek();
+    
+    // Set the current week state
+    setCurrentWeek(todayWeek);
+    
+    // If we have a token, fetch events for the new week directly
+    if (token) {
+      fetchEventsForWeek(token, todayWeek, silentRefresh);
+    }
+  };
+
   return (
     <ThemedView style={styles.container}>
       {/* Header with Month/Year and Navigation */}
@@ -1511,7 +1538,7 @@ export default function GoogleCalendar({
           <TouchableOpacity onPress={() => navigateWeek(-1)} style={styles.navButton}>
             <ThemedText style={styles.navButtonText}>←</ThemedText>
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => setCurrentWeek(getDaysOfWeek())} style={styles.todayButton}>
+          <TouchableOpacity onPress={() => goToToday()} style={styles.todayButton}>
             <ThemedText style={styles.todayButtonText}>Today</ThemedText>
           </TouchableOpacity>
           <TouchableOpacity onPress={() => navigateWeek(1)} style={styles.navButton}>
