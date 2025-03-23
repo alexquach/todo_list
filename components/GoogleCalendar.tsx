@@ -394,11 +394,43 @@ export default function GoogleCalendar({
     }
   };
 
+  // Add this function after signInWithGoogle
+  const refreshTokenIfNeeded = async (token: string) => {
+    try {
+      // Parse the token to check expiration
+      const tokenData = JSON.parse(atob(token.split('.')[1]));
+      const expiryTime = tokenData.exp * 1000; // Convert to milliseconds
+      const currentTime = Date.now();
+      
+      // If token will expire in less than 5 minutes, refresh it
+      if (expiryTime - currentTime < 5 * 60 * 1000) {
+        console.log('Token about to expire, refreshing...');
+        await signInWithGoogle();
+        return true; // Token was refreshed
+      }
+      return false; // No refresh needed
+    } catch (error) {
+      console.error('Error checking token expiration:', error);
+      return false;
+    }
+  };
+
   // Fetch calendar events
   const fetchEvents = async (accessToken: string, silentRefresh = false) => {
     try {
+      // Check if token needs refresh before making request
+      const wasRefreshed = await refreshTokenIfNeeded(accessToken);
+      if (wasRefreshed) {
+        // Token was refreshed, use the new one from storage
+        const newToken = await loadToken();
+        if (newToken) {
+          accessToken = newToken;
+        }
+      }
+      
+      // Continue with existing fetch logic
       if (!silentRefresh) {
-        setLoading(true); // Only show loading indicator if not a silent refresh
+        setLoading(true);
       }
       
       // Use the start and end of current week for the date range
