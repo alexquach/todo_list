@@ -200,12 +200,13 @@ export default function GoogleCalendar({
   clearDraggedTodo,
   onTodoEventMoved
 }: GoogleCalendarProps) {
+  // State declarations
   const [events, setEvents] = useState<CalendarEvent[]>([]);
-  const [allDayEvents, setAllDayEvents] = useState<CalendarEvent[]>([]);
-  const [token, setToken] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [redirectUri, setRedirectUri] = useState<string | null>(null);
+  const [token, setToken] = useState<string | null>(null); // Add this line
+  const [allDayEvents, setAllDayEvents] = useState<CalendarEvent[]>([]); // Add this line too
   const [currentWeek, setCurrentWeek] = useState<Date[]>(getDaysOfWeek());
   const [isDropTarget, setIsDropTarget] = useState<number | null>(null);
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
@@ -252,6 +253,20 @@ export default function GoogleCalendar({
   // Add this to your state variables
   const [message, setMessage] = useState<string | null>(null);
 
+  // Move the useEffect to the top level with other hooks
+  // This hook ensures text is synced with the event
+  useEffect(() => {
+    // Only run this when editingEvent changes, not when editEventText changes
+    if (editingEvent) {
+      setEditEventText(editingEvent.summary || '');
+    }
+  }, [editingEvent]); // Remove editEventText from dependencies
+  
+  // All the other existing useEffect hooks
+  useEffect(() => {
+    // ... existing effect
+  }, []);
+  
   // Update current time every minute
   useEffect(() => {
     const timer = setInterval(() => {
@@ -1375,10 +1390,14 @@ export default function GoogleCalendar({
     height: timeSlots.length * 60
   };
 
-  // When setting up the editing state, ensure default value is empty string
+  // Modify the setEventForEditing function to just set the event
+  // and rely on the useEffect to update the text
   const setEventForEditing = (event: CalendarEvent) => {
+    // First set the event
     setEditingEvent(event);
-    setEditEventText(event.summary || ''); // Add fallback to empty string
+    // Then explicitly set the text
+    // This makes the value available immediately
+    setEditEventText(event.summary || '');
     setShowDeleteConfirm(false);
   };
 
@@ -1856,7 +1875,6 @@ export default function GoogleCalendar({
                         // Only select the event if we're not dragging or resizing
                         if (!isDraggingEvent && !isEventResizing) {
                           setEditingEvent(event);
-                          setEditEventText(event.summary || '');
                           setShowDeleteConfirm(false);
                         }
                       }}
@@ -1962,7 +1980,8 @@ export default function GoogleCalendar({
                   value={editEventText}
                   onChangeText={setEditEventText}
                   style={styles.editTitleInput}
-                  placeholder="Event title"
+                  autoFocus={Platform.OS === 'web'} // Auto focus on web platforms
+                  selectTextOnFocus // This selects all text when focusing
                   {...(Platform.OS === 'web' ? {
                     // @ts-ignore - Web-only prop
                     onKeyPress: (e: any) => {
@@ -1971,21 +1990,26 @@ export default function GoogleCalendar({
                         e.preventDefault();
                         
                         // Only save if the text has changed
-                        if (editEventText.trim() !== editingEvent.summary) {
-                          updateEvent(editingEvent.id, { summary: editEventText })
+                        const newTitle = editEventText.trim();
+                        if (newTitle && newTitle !== editingEvent.summary) {
+                          updateEvent(editingEvent.id, { summary: newTitle })
                             .then(() => {
-                              // Update local state
+                              // Update local state immediately for responsiveness
                               setEvents(prevEvents => 
                                 prevEvents.map(evt => 
                                   evt.id === editingEvent.id 
-                                    ? { ...evt, summary: editEventText }
+                                    ? { ...evt, summary: newTitle }
                                     : evt
                                 )
                               );
-                              
-                              // Optionally close the panel after save
-                              // setEditingEvent(null);
+                              // Update the editing event's summary in state
+                              setEditingEvent(prev => prev ? { ...prev, summary: newTitle } : null);
+                              // Close the editing panel
+                              setEditingEvent(null);
                             });
+                        } else if (newTitle === '') {
+                          // If user clears the input completely, close without saving
+                          setEditingEvent(null);
                         }
                       }
                     }
@@ -2005,20 +2029,26 @@ export default function GoogleCalendar({
                 <TouchableOpacity 
                   style={styles.saveButton}
                   onPress={() => {
-                    if (editEventText.trim() !== editingEvent.summary) {
-                      updateEvent(editingEvent.id, { summary: editEventText })
+                    const newTitle = editEventText.trim();
+                    // Only save if the text has changed
+                    if (newTitle && newTitle !== editingEvent.summary) {
+                      updateEvent(editingEvent.id, { summary: newTitle })
                         .then(() => {
-                          // Update local state
+                          // Update local state immediately
                           setEvents(prevEvents => 
                             prevEvents.map(evt => 
                               evt.id === editingEvent.id 
-                                ? { ...evt, summary: editEventText }
+                                ? { ...evt, summary: newTitle }
                                 : evt
                             )
                           );
+                          // Close the editing panel
+                          setEditingEvent(null);
                         });
+                    } else if (newTitle === '') {
+                      // If user clears the input completely, close without saving
+                      setEditingEvent(null);
                     }
-                    // Don't close panel here - let user click away to close it
                   }}
                 >
                   <ThemedText style={styles.saveButtonText}>Save</ThemedText>
@@ -2538,6 +2568,8 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     paddingHorizontal: 10,
     backgroundColor: 'white',
+    fontSize: 14, // Ensure font size is readable
+    color: '#333', // Text color when typing
   },
   editFieldValue: {
     fontSize: 14,
