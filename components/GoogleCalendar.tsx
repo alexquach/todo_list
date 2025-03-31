@@ -917,15 +917,19 @@ export default function GoogleCalendar({
         throw new Error(`Failed to update event: ${updateResponse.status}`);
       }
       
-      // Return the updated event
-      const result = await updateResponse.json();
-      console.log('Event updated successfully:', result);
-      
-      // Show success feedback to the user
-      // This could be a toast notification or other UI feedback
+      // Return a resolved promise
       return Promise.resolve();
     } catch (error) {
       console.error('Error updating event:', error);
+      // Check if this is an auth error (401) and try to refresh token
+      if (error instanceof Error && error.message.includes('401')) {
+        try {
+          await refreshTokenIfNeeded(token);
+          // Maybe retry the update after refreshing?
+        } catch (refreshError) {
+          console.error('Failed to refresh token:', refreshError);
+        }
+      }
       return Promise.reject(error);
     }
   };
@@ -2006,6 +2010,13 @@ export default function GoogleCalendar({
                               setEditingEvent(prev => prev ? { ...prev, summary: newTitle } : null);
                               // Close the editing panel
                               setEditingEvent(null);
+                              // Success message if needed
+                              setMessage("Event updated successfully");
+                            })
+                            .catch(error => {
+                              // Handle error
+                              console.error("Failed to update event:", error);
+                              setMessage("Failed to update event. Please try again.");
                             });
                         } else if (newTitle === '') {
                           // If user clears the input completely, close without saving
@@ -2029,26 +2040,25 @@ export default function GoogleCalendar({
                 <TouchableOpacity 
                   style={styles.saveButton}
                   onPress={() => {
-                    const newTitle = editEventText.trim();
-                    // Only save if the text has changed
-                    if (newTitle && newTitle !== editingEvent.summary) {
-                      updateEvent(editingEvent.id, { summary: newTitle })
+                    if (editEventText.trim() !== editingEvent.summary) {
+                      updateEvent(editingEvent.id, { summary: editEventText })
                         .then(() => {
-                          // Update local state immediately
+                          // Update local state
                           setEvents(prevEvents => 
                             prevEvents.map(evt => 
                               evt.id === editingEvent.id 
-                                ? { ...evt, summary: newTitle }
+                                ? { ...evt, summary: editEventText }
                                 : evt
                             )
                           );
-                          // Close the editing panel
-                          setEditingEvent(null);
+                          setMessage("Event updated successfully");
+                        })
+                        .catch(error => {
+                          console.error("Failed to update event:", error);
+                          setMessage("Failed to update event. Please try again.");
                         });
-                    } else if (newTitle === '') {
-                      // If user clears the input completely, close without saving
-                      setEditingEvent(null);
                     }
+                    // Don't close panel here - let user click away to close it
                   }}
                 >
                   <ThemedText style={styles.saveButtonText}>Save</ThemedText>
